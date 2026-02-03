@@ -1,4 +1,4 @@
-# Clauditor v0.1.0 - Security Watchdog for Clawdbot
+# Clauditor v0.1.2 - Security Watchdog for Clawdbot
 
 Clauditor is a tamper-resistant audit watchdog that makes it hard for a compromised
 Clawdbot agent to operate without leaving a trail. It runs a dedicated `sysaudit`
