@@ -9,7 +9,9 @@ import java.util.concurrent.TimeUnit
 
 private const val TAG = "WebSocketGateway"
 private const val HEARTBEAT_INTERVAL_MS = 30000L // 30 seconds
-private const val RECONNECT_DELAY_MS = 5000L // 5 seconds
+private const val INITIAL_RECONNECT_DELAY_MS = 1000L // 1 second
+private const val MAX_RECONNECT_DELAY_MS = 60000L // 60 seconds
+private const val RECONNECT_BACKOFF_MULTIPLIER = 2.0
 
 /**
  * WebSocket gateway for real-time communication with the server.
@@ -35,6 +37,7 @@ class WebSocketGateway(
     
     private var serverUrl: String? = null
     private var isManualDisconnect = false
+    private var currentReconnectDelay = INITIAL_RECONNECT_DELAY_MS
     
     interface WebSocketListener {
         fun onConnected()
@@ -76,6 +79,8 @@ class WebSocketGateway(
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.i(TAG, "WebSocket connected successfully to $url")
                 listener?.onConnected()
+                // Reset reconnect delay on successful connection
+                currentReconnectDelay = INITIAL_RECONNECT_DELAY_MS
                 startHeartbeat()
                 
                 // Send initial registration message
@@ -213,14 +218,18 @@ class WebSocketGateway(
     }
 
     /**
-     * Schedule automatic reconnection attempt.
+     * Schedule automatic reconnection attempt with exponential backoff.
      */
     private fun scheduleReconnect() {
         cancelReconnect()
         
         reconnectJob = scope.launch {
-            Log.i(TAG, "Scheduling reconnect in ${RECONNECT_DELAY_MS}ms")
-            delay(RECONNECT_DELAY_MS)
+            Log.i(TAG, "Scheduling reconnect in ${currentReconnectDelay}ms")
+            delay(currentReconnectDelay)
+            
+            // Increase delay for next attempt (exponential backoff)
+            currentReconnectDelay = (currentReconnectDelay * RECONNECT_BACKOFF_MULTIPLIER).toLong()
+                .coerceAtMost(MAX_RECONNECT_DELAY_MS)
             
             serverUrl?.let { url ->
                 Log.i(TAG, "Attempting to reconnect to $url")

@@ -27,19 +27,12 @@ class NodeIdentityStorage(private val context: Context) {
     }
 
     /**
-     * Get the node ID. If none exists, generates and stores a new one.
+     * Get the node ID. Returns existing ID or empty string if not set.
+     * Use getOrCreateNodeId() to ensure ID is created and persisted.
      * Returns Flow so UI can observe changes.
      */
     val nodeIdFlow: Flow<String> = context.dataStore.data.map { preferences ->
-        val nodeId = preferences[PreferencesKeys.NODE_ID]
-        if (nodeId.isNullOrEmpty()) {
-            val newNodeId = generateNodeId()
-            Log.i(TAG, "Generated new node ID: $newNodeId")
-            newNodeId
-        } else {
-            Log.d(TAG, "Retrieved existing node ID: $nodeId")
-            nodeId
-        }
+        preferences[PreferencesKeys.NODE_ID] ?: ""
     }
 
     /**

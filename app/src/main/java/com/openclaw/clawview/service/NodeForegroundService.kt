@@ -8,6 +8,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.openclaw.clawview.MainActivity
 import com.openclaw.clawview.R
 import com.openclaw.clawview.camera.CameraManager
 import com.openclaw.clawview.network.WebSocketGateway
@@ -206,7 +207,7 @@ class NodeForegroundService : Service(), WebSocketGateway.WebSocketListener {
      * Create notification for foreground service.
      */
     private fun createNotification(contentText: String): Notification {
-        val notificationIntent = Intent(this, Class.forName("com.openclaw.clawview.MainActivity"))
+        val notificationIntent = Intent(this, MainActivity::class.java)
         val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         } else {
@@ -245,8 +246,9 @@ class NodeForegroundService : Service(), WebSocketGateway.WebSocketListener {
                 PowerManager.PARTIAL_WAKE_LOCK,
                 "ClawView::NodeServiceWakeLock"
             )
-            wakeLock?.acquire()
-            Log.i(TAG, "Wake lock acquired")
+            // Acquire with 10-hour timeout to prevent battery drain if not released
+            wakeLock?.acquire(10 * 60 * 60 * 1000L)
+            Log.i(TAG, "Wake lock acquired with timeout")
         } catch (e: Exception) {
             Log.e(TAG, "FAILED to acquire wake lock: ${e.message}", e)
         }

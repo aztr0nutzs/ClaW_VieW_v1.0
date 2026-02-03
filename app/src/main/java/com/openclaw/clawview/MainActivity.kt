@@ -39,7 +39,7 @@ class MainActivity : AppCompatActivity(), CameraManager.CameraListener {
     private lateinit var nodeStorage: NodeIdentityStorage
     private lateinit var cameraManager: CameraManager
     
-    private val logBuffer = StringBuilder()
+    private val logLines = ArrayDeque<String>(50) // Circular buffer for log lines
     private val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
     // Permission launchers
@@ -119,10 +119,16 @@ class MainActivity : AppCompatActivity(), CameraManager.CameraListener {
         
         lifecycleScope.launch {
             try {
-                // Observe node ID
-                nodeStorage.nodeIdFlow.collectLatest { nodeId ->
-                    log("Node ID loaded: $nodeId")
-                    binding.tvNodeId.text = nodeId
+                // Ensure node ID is created and saved
+                val nodeId = nodeStorage.getOrCreateNodeId()
+                log("Node ID initialized: $nodeId")
+                
+                // Observe node ID for updates
+                nodeStorage.nodeIdFlow.collectLatest { id ->
+                    if (id.isNotEmpty()) {
+                        log("Node ID updated: $id")
+                        binding.tvNodeId.text = id
+                    }
                 }
             } catch (e: Exception) {
                 log("ERROR loading node ID: ${e.message}")
@@ -318,19 +324,20 @@ class MainActivity : AppCompatActivity(), CameraManager.CameraListener {
         // Log to Logcat
         Log.i(TAG, message)
         
-        // Add to UI log buffer
-        logBuffer.append(logLine).append("\n")
-        
-        // Keep buffer size reasonable (last 50 lines)
-        val lines = logBuffer.lines()
-        if (lines.size > 50) {
-            logBuffer.clear()
-            lines.takeLast(50).forEach { logBuffer.append(it).append("\n") }
+        // Add to circular buffer (O(1) operation)
+        synchronized(logLines) {
+            if (logLines.size >= 50) {
+                logLines.removeFirst()
+            }
+            logLines.addLast(logLine)
         }
         
         // Update UI on main thread
         runOnUiThread {
-            binding.tvLogs.text = logBuffer.toString()
+            val logText = synchronized(logLines) {
+                logLines.joinToString("\n")
+            }
+            binding.tvLogs.text = logText
             binding.scrollViewLogs.post {
                 binding.scrollViewLogs.fullScroll(android.view.View.FOCUS_DOWN)
             }
