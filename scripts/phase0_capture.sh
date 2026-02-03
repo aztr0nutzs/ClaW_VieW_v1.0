@@ -16,11 +16,15 @@ if ! command -v adb >/dev/null 2>&1; then
   exit 1
 fi
 
-device_id="$(adb devices | awk 'NR==2 {print $1}')"
-if [[ -z "$device_id" ]]; then
-  echo "No connected device found. Connect a physical device and enable USB debugging." >&2
+online_devices=($(adb devices | awk 'NR>1 && $2=="device" {print $1}'))
+
+if [[ ${#online_devices[@]} -ne 1 ]]; then
+  echo "Error: This script requires exactly one connected and authorized device, but found ${#online_devices[@]}." >&2
+  echo "Please connect one device and enable USB debugging." >&2
   exit 1
 fi
+
+device_id="${online_devices[0]}"
 
 timestamp="$(date +%Y%m%d_%H%M%S)"
 output_dir="phase0_artifacts_${timestamp}"
