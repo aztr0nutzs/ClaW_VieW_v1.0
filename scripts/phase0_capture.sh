@@ -55,7 +55,12 @@ trap cleanup EXIT
 if [[ -n "${MAIN_ACTIVITY:-}" ]]; then
   adb shell am start -n "${PACKAGE_NAME}/${MAIN_ACTIVITY}" >/dev/null
 else
-  adb shell monkey -p "${PACKAGE_NAME}" -c android.intent.category.LAUNCHER 1 >/dev/null
+  resolved_activity="$(adb shell cmd package resolve-activity --brief "${PACKAGE_NAME}" | tail -n 1 | tr -d '\r')"
+  if [[ -z "${resolved_activity}" ]]; then
+    echo "Unable to resolve main activity for package: ${PACKAGE_NAME}" >&2
+    exit 1
+  fi
+  adb shell am start -n "${resolved_activity}" >/dev/null
 fi
 
 echo "App launch requested. Verify the foreground notification appears within 5 seconds."
