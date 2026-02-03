@@ -141,7 +141,7 @@ impl Alerter {
         let now = Utc::now();
         let cooldown = Duration::from_secs(self.config.cooldown_secs);
         
-        let mut times = self.last_alert_times.lock().unwrap();
+        let mut times = self.last_alert_times.lock().unwrap_or_else(|e| e.into_inner());
         let cutoff = now
             .checked_sub_signed(
                 chrono::Duration::from_std(cooldown).unwrap_or(chrono::TimeDelta::MAX),
