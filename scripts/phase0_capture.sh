@@ -30,6 +30,15 @@ timestamp="$(date +%Y%m%d_%H%M%S)"
 output_dir="phase0_artifacts_${timestamp}"
 mkdir -p "${output_dir}"
 
+if [[ ! -d "${output_dir}" ]]; then
+  echo "Failed to create output directory: ${output_dir}" >&2
+  exit 1
+fi
+
+if [[ ! -w "${output_dir}" ]]; then
+  echo "Output directory is not writable: ${output_dir}" >&2
+  exit 1
+fi
 device_model="$(adb shell getprop ro.product.model | tr -d '\r')"
 android_version="$(adb shell getprop ro.build.version.release | tr -d '\r')"
 {
