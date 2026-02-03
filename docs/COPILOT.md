@@ -1,18 +1,19 @@
+# Copilot / Codex Repo Instructions — OpenClaw Android Companion (V4)
 
-# Copilot Instructions – OpenClaw Android Companion
+You are building a REAL Android node.
 
-You are building a **real Android node**, not a demo.
+## You MUST generate code that:
+- Uses a ForegroundService for all execution (gateway + capabilities).
+- Provides explicit, structured logging for every important step.
+- Implements strict JSON envelopes and validates ACKs.
+- Implements reconnect with backoff + jitter.
+- Handles runtime permission denial as a first-class outcome.
 
-When generating code:
-- Prefer failure over silence
-- Implement logs before UI
-- Never invent server endpoints
-- Never simulate success
+## You MUST NOT:
+- Invent controller endpoints. If unknown, implement explicit NOT_SUPPORTED failures.
+- Simulate success or return fake data.
+- Add UI without wiring to a service method and log trace.
+- Hide errors. No silent catch blocks.
 
-Required outputs:
-- ForegroundService implementations
-- WebSocket gateway with heartbeat
-- Permission-aware CameraX usage
-- Persistent storage for node identity
-
-If execution cannot be proven, mark the feature as FAILED.
+## Output standard:
+If you cannot prove it with receipts, mark it FAILED.

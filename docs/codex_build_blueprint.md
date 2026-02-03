@@ -166,24 +166,81 @@ Prove real camera capture and transmission.
 
 ---
 
-## PHASE 7 — UI TRUTH ENFORCEMENT
+## PHASE 7 — MAIN GUI INTEGRATION (openclaw_dash.html)
 
 ### Objective
-Ensure UI cannot lie.
+Make **openclaw_dash.html** the app’s **single source of truth GUI** and ensure every UI action is **wired to real backend execution paths**.
+
+This phase is not "make it look right". This phase is: **buttons trigger real service code, and state displayed is real**.
+
+### Non‑Negotiable Rules
+- **openclaw_dash.html must be the main GUI** loaded by the app (no alternate dashboards, no placeholder pages).
+- The HTML must be loaded from exactly one canonical location:
+  - Either `file:///android_asset/.../openclaw_dash.html` (assets) and the same page may be served by the local server when available.
+- The UI must have a single transport to the backend:
+  - **Option A:** HTTP/WS to the local gateway server (recommended)
+  - **Option B:** `addJavascriptInterface` bridge (allowed only if it routes into the ForegroundService)
+- **No UI action exists without a backend handler**. If no handler exists, the button must be disabled and show an explicit error.
 
 ### Tasks
-1. UI observes service state only
-2. Disable actions when backend unavailable
-3. Display last error truthfully
+1. **Set openclaw_dash.html as the default launch GUI**
+   - Update the Android entry activity (or WebView host) to load `openclaw_dash.html` first.
+   - Any existing bootstrap/placeholder page must be removed or become a thin redirect to `openclaw_dash.html`.
+
+2. **Define the UI ↔ Backend contract (explicit API map)**
+   - Create a single authoritative mapping (code or markdown) of:
+     - UI action name (button id / JS function)
+     - Backend endpoint or JS bridge method
+     - ForegroundService method executed
+     - Success/failure response schema
+   - Minimum required actions:
+     - Connect/Disconnect gateway
+     - Show registration status
+     - Trigger `camsnap`
+     - Show last error
+     - Show last heartbeat timestamp
+
+3. **Wire every UI action to the ForegroundService**
+   - If HTTP/WS: implement endpoints in the local server that forward into the ForegroundService.
+   - If JS bridge: implement a thin `OpenClawBridge` that forwards into the ForegroundService and returns structured responses.
+   - Every handler must:
+     - Validate service is running
+     - Validate required permissions
+     - Execute the real action
+     - Return a structured response: `{ ok: boolean, code: string, message: string, data?: object }`
+
+4. **Wire real state into the UI (no lies)**
+   - The UI must be updated only from actual service state:
+     - connected/disconnected
+     - registered/unregistered
+     - lastHeartbeat
+     - lastError
+     - lastCapabilityResult
+   - Implement a single real-time state feed:
+     - **Option A:** WebSocket `/ui/events` emitting state updates
+     - **Option B:** Polling `/ui/state` every N seconds (configurable and rate-limited)
+
+5. **Hard-fail for missing wiring**
+   - If the UI calls an endpoint/method that does not exist, the UI must:
+     - display an explicit error banner
+     - log it (Android log and server log)
+     - keep the button disabled until wiring exists
 
 ### Mandatory Proof
-- Screenshot of disconnected UI
-- Logs backing UI state
+- Evidence that `openclaw_dash.html` is the **first page shown** after launch:
+  - Log line: `GUI_LOADED openclaw_dash.html` (or equivalent)
+  - Screenshot of the dashboard on a physical device
+- For **each required UI action**, provide:
+  - The UI trigger identifier (button id / JS function)
+  - The backend handler location (file + function)
+  - A log trace showing: `UI_EVENT -> SERVICE_CALL -> RESULT`
+- Demonstrate **truthful UI**:
+  - Disconnect network, show UI flips to disconnected
+  - Reconnect, show heartbeat resumes
 
 ### Completion Mark
-`PHASE_7_COMPLETE`
 
----
+`PHASE_7_COMPLETE`
 
 ## PHASE 8 — FAILURE MODES & HARDENING
 
