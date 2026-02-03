@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenClaw Companion</title>
+  <style>
+    body { margin:0; font-family: system-ui, sans-serif; background:#000; color:#e6e6e6; }
+    header { padding:14px 16px; border-bottom:1px solid #222; display:flex; align-items:center; gap:12px; }
+    .pill { padding:4px 10px; border-radius:999px; font-size:12px; border:1px solid #333; }
+    .ok { border-color:#2bff88; color:#2bff88; }
+    .bad { border-color:#ff2b5c; color:#ff2b5c; }
+    main { padding:16px; display:grid; gap:12px; }
+    .card { border:1px solid #222; border-radius:14px; padding:14px; background:#0a0a0a; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; }
+    button { background:#111; color:#fff; border:1px solid #333; border-radius:12px; padding:12px 14px; cursor:pointer; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    #errorBanner { display:none; border:1px solid #ff2b5c; color:#ff7a96; background:#19040a; padding:10px 12px; border-radius:12px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+    pre { white-space: pre-wrap; word-break: break-word; background:#060606; border:1px solid #222; padding:10px; border-radius:12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>OpenClaw Companion</strong>
+    <span id="pillConnected" class="pill bad">DISCONNECTED</span>
+    <span id="pillRegistered" class="pill bad">UNREGISTERED</span>
+    <span class="pill" id="pillHeartbeat">HB: —</span>
+  </header>
+
+  <main>
+    <div id="errorBanner"></div>
+
+    <div class="card">
+      <h3>Gateway</h3>
+      <div class="row">
+        <button id="btnConnect" onclick="connectGateway()">Connect</button>
+        <button id="btnDisconnect" onclick="disconnectGateway()">Disconnect</button>
+        <button id="btnStatus" onclick="requestStatus()">Refresh Status</button>
+      </div>
+      <p><small>Controller URL: <code id="controllerUrl">—</code></small></p>
+    </div>
+
+    <div class="card">
+      <h3>Capabilities</h3>
+      <div class="row">
+        <button id="btnCamsnap" onclick="triggerCamsnap()">Camsnap</button>
+      </div>
+      <p><small>Last result:</small></p>
+      <pre id="lastResult">{}</pre>
+    </div>
+
+    <div class="card">
+      <h3>Debug</h3>
+      <div class="row">
+        <button id="btnCopyLogs" onclick="copyLastLogs()">Copy last logs</button>
+        <button id="btnClearError" onclick="clearError()">Clear error</button>
+      </div>
+      <pre id="lastLogs">No logs yet.</pre>
+    </div>
+  </main>
+
+<script>
+  // ========= REQUIRED PUBLIC JS API (names exact) =========
+  function connectGateway() {
+    return callBridge('connectGateway', {});
+  }
+  function disconnectGateway() {
+    return callBridge('disconnectGateway', {});
+  }
+  function triggerCamsnap() {
+    // Optional args: quality(0-100), maxBytes
+    return callBridge('triggerCamsnap', { quality: 85, maxBytes: 600000 });
+  }
+  function requestStatus() {
+    return callBridge('requestStatus', {});
+  }
+
+  // ========= Bridge plumbing =========
+  function callBridge(method, args) {
+    try {
+      if (!window.OpenClawBridge || typeof window.OpenClawBridge[method] !== 'function') {
+        showError(`Missing backend handler: OpenClawBridge.${method}()`);
+        setButtonsEnabled(false);
+        return;
+      }
+      const raw = window.OpenClawBridge[method](JSON.stringify(args || {}));
+      const resp = safeJson(raw);
+      if (!resp || resp.ok !== true) {
+        showError(resp?.message || `Call failed: ${method}`);
+      } else {
+        hideError();
+      }
+      // Update UI state if included
+      if (resp && resp.data && resp.data.state) applyState(resp.data.state);
+      if (resp && resp.data && resp.data.result) document.getElementById('lastResult').textContent = JSON.stringify(resp.data.result, null, 2);
+      if (resp && resp.data && resp.data.lastLogs) document.getElementById('lastLogs').textContent = resp.data.lastLogs;
+      return resp;
+    } catch (e) {
+      showError(`Bridge error: ${String(e)}`);
+    }
+  }
+
+  // Called by Android when state changes (optional)
+  function onStateUpdate(stateJson) {
+    const state = safeJson(stateJson);
+    if (state) applyState(state);
+  }
+
+  function applyState(state) {
+    const connected = !!state.connected;
+    const registered = !!state.registered;
+    setPill('pillConnected', connected, connected ? 'CONNECTED' : 'DISCONNECTED');
+    setPill('pillRegistered', registered, registered ? 'REGISTERED' : 'UNREGISTERED');
+    document.getElementById('pillHeartbeat').textContent = `HB: ${state.lastHeartbeat || '—'}`;
+    document.getElementById('controllerUrl').textContent = state.controllerUrl || '—';
+    // Buttons are truthful: disable camsnap unless connected (and optionally registered)
+    document.getElementById('btnCamsnap').disabled = !connected;
+    document.getElementById('btnDisconnect').disabled = !connected;
+    document.getElementById('btnConnect').disabled = connected;
+  }
+
+  function setPill(id, ok, text) {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.classList.remove('ok','bad');
+    el.classList.add(ok ? 'ok' : 'bad');
+  }
+
+  function setButtonsEnabled(enabled) {
+    ['btnConnect','btnDisconnect','btnStatus','btnCamsnap','btnCopyLogs','btnClearError'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = !enabled;
+    });
+  }
+
+  function showError(msg) {
+    const b = document.getElementById('errorBanner');
+    b.style.display = 'block';
+    b.textContent = msg;
+  }
+  function hideError() {
+    const b = document.getElementById('errorBanner');
+    b.style.display = 'none';
+    b.textContent = '';
+  }
+  function clearError(){ hideError(); }
+
+  function copyLastLogs() {
+    const txt = document.getElementById('lastLogs').textContent || '';
+    navigator.clipboard?.writeText(txt);
+  }
+
+  function safeJson(x){ try { return JSON.parse(x); } catch(_) { return null; } }
+
+  // Boot: request initial state
+  requestStatus();
+</script>
+</body>
+</html>
