@@ -63,8 +63,10 @@ else
   adb shell am start -n "${resolved_activity}" >/dev/null
 fi
 
-echo "App launch requested. Verify the foreground notification appears within 5 seconds."
-echo "Press Enter to capture the notification screenshot."
+echo "App launch requested."
+echo "IMPORTANT: For Phase 0, the foreground notification must appear within 5 seconds of app launch."
+echo "Watch the device now. If the notification appears within 5 seconds, press Enter to capture the notification screenshot."
+echo "If it does NOT appear within 5 seconds, press Ctrl+C to abort and treat this as a Phase 0 failure."
 read -r
 
 screencap_file="${output_dir}/notification.png"
