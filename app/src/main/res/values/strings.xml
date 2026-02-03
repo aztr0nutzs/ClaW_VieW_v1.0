@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ClaW VieW</string>
+    <string name="service_notification_title">Node Service Running</string>
+    <string name="service_notification_text">OpenClaw node is active</string>
+    <string name="channel_name">Node Service</string>
+    <string name="channel_description">Keeps the node service running in the foreground</string>
+    
+    <string name="permission_camera_required">Camera permission is required for node operation</string>
+    <string name="permission_notification_required">Notification permission is required for foreground service</string>
+    
+    <string name="node_status_disconnected">Disconnected</string>
+    <string name="node_status_connecting">Connecting…</string>
+    <string name="node_status_connected">Connected</string>
+    <string name="node_status_error">Error</string>
+    
+    <string name="btn_start_service">Start Node Service</string>
+    <string name="btn_stop_service">Stop Node Service</string>
+    
+    <string name="websocket_error">WebSocket error: %s</string>
+    <string name="websocket_closed">WebSocket closed</string>
+    <string name="websocket_connected">WebSocket connected</string>
+    
+    <string name="camera_error">Camera error: %s</string>
+    <string name="camera_ready">Camera ready</string>
+    
+    <string name="node_id_label">Node ID:</string>
+    <string name="server_url_label">Server URL:</string>
+    <string name="status_label">Status:</string>
+</resources>
