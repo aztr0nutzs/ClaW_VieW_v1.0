@@ -67,8 +67,16 @@ echo "App launch requested. Verify the foreground notification appears within 5 
 echo "Press Enter to capture the notification screenshot."
 read -r
 
-adb exec-out screencap -p > "${output_dir}/notification.png"
+screencap_file="${output_dir}/notification.png"
+if ! adb exec-out screencap -p > "${screencap_file}"; then
+  echo "Failed to capture screenshot via adb. Ensure the device is connected, unlocked, and USB debugging is enabled." >&2
+  exit 1
+fi
 
+if [[ ! -s "${screencap_file}" ]]; then
+  echo "Screenshot file is missing or empty: ${screencap_file}. Phase 0 artifacts are incomplete." >&2
+  exit 1
+fi
 # Ensure logcat capture is stopped and the log file is flushed before reporting success
 if kill -0 "${logcat_pid}" >/dev/null 2>&1; then
   kill "${logcat_pid}" >/dev/null 2>&1 || true
