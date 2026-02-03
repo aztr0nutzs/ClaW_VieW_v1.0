@@ -64,4 +64,27 @@ read -r
 
 adb exec-out screencap -p > "${output_dir}/notification.png"
 
+# Ensure logcat capture is stopped and the log file is flushed before reporting success
+if kill -0 "${logcat_pid}" >/dev/null 2>&1; then
+  kill "${logcat_pid}" >/dev/null 2>&1 || true
+  wait "${logcat_pid}" 2>/dev/null || true
+fi
+
+echo
+echo "Phase 0 logcat captured at: ${logcat_file}"
+echo "To verify Phase 0 completion, review the logcat for at least the following:"
+echo "  1) Service creation for the foreground service."
+echo "  2) A call to startForeground() occurring within 5 seconds of app launch."
+echo "  3) No ANR (Application Not Responding) entries during the capture window."
+echo
+echo "Example commands you can run locally to help review the logcat:"
+echo "  # Service creation (adjust patterns to match your app's logs):"
+echo "  grep -i 'Service' \"${logcat_file}\" | head"
+echo
+echo "  # startForeground() calls (if your app logs them):"
+echo "  grep -i 'startForeground' \"${logcat_file}\""
+echo
+echo "  # Check for ANR entries:"
+echo "  grep -i 'ANR' \"${logcat_file}\" || echo 'No ANR lines found.'"
+echo
 echo "Phase 0 artifacts captured in ${output_dir}."
