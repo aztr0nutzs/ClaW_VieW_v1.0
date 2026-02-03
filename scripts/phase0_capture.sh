@@ -46,7 +46,8 @@ logcat_pid=$!
 
 cleanup() {
   if kill -0 "${logcat_pid}" >/dev/null 2>&1; then
-    kill "${logcat_pid}"
+    kill "${logcat_pid}" >/dev/null 2>&1 || :
+    wait "${logcat_pid}" 2>/dev/null || :
   fi
 }
 trap cleanup EXIT
