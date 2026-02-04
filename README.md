@@ -81,7 +81,7 @@ These phases define the **end-to-end capability progression** for the Android co
 
 1. **Phase 0 — Spec freeze**: menu items + behavior matrix and RPC map locked in.【F:OPENCLAW_ANDROID_COMPANION_BLUEPRINT.md†L1-L31】
 2. **Phase 1 — Android shell**: WebView loads `openclaw_dash.html` and exposes the JS bridge.【F:OPENCLAW_ANDROID_COMPANION_BLUEPRINT.md†L33-L52】
-3. **Phase 2 — Gateway connection**: handshake, pairing flow, token persistence, and UI for pairing/connection state.【F:OPENCLAW_ANDROID_COMPANION_BLUEPRINT.md†L54-L82】
+3. **Phase 2 — Gateway connection**: handshake, pairing flow, token persistence, and UI for pairing/connection state.【F:OPENCLAW_ANDROID_COMPANION_BLUEPRINT.md†L46-L64】
 4. **Phase 3 — Operator surface**: side menu triggers real RPCs with visible results and logs.【F:OPENCLAW_ANDROID_COMPANION_BLUEPRINT.md†L84-L114】
 5. **Phase 4 — Node mode**: Android advertises node capabilities; `camsnap` is implemented end-to-end.【F:OPENCLAW_ANDROID_COMPANION_BLUEPRINT.md†L116-L139】
 6. **Phase 5 — Security hardening**: token-based auth + safe remote access guidance.【F:OPENCLAW_ANDROID_COMPANION_BLUEPRINT.md†L141-L150】
