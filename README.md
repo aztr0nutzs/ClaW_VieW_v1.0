@@ -1,7 +1,5 @@
-![Claw View Dashboard Header](assets/claw_view_dash1.png)
-
-# Claw View v1.0 — OpenClaw Android Companion Dashboard
-
+![Claw View Dashboard Header](assets/claw_view_dash5.png)
+# Claw View v1.0 — OpenClaw Android Companion 
 <p align="center">
   <a href="https://openclaw.ai/"><img src="https://img.shields.io/badge/Website-openclaw.ai-0ea5e9?style=for-the-badge" alt="OpenClaw Website"></a>
   <a href="https://docs.openclaw.ai/"><img src="https://img.shields.io/badge/Docs-docs.openclaw.ai-22c55e?style=for-the-badge" alt="OpenClaw Docs"></a>
