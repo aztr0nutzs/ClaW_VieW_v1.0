@@ -10,7 +10,7 @@
   <a href="https://github.com/openclaw/openclaw/releases"><img src="https://img.shields.io/github/v/release/openclaw/openclaw?style=for-the-badge" alt="OpenClaw Releases"></a>
 </p>
 
-This repository is an **Android companion** for **OpenClaw**. It is designed to act as a **device node**: it registers with an OpenClaw Gateway, advertises device capabilities, executes them, and returns results. The Android app’s UI is fully driven by **openclaw_dash.html**, and all actions flow from the UI to the foreground service and back with real logs and responses (no mocks).【F:docs/PROJECT_RULES.md†L1-L36】
+This repository is an **Android companion** for **OpenClaw**. It is designed to act as a **device node**: it registers with an OpenClaw Gateway, advertises device capabilities, executes them, and returns results. The Android app’s UI is fully driven by **openclaw_dash.html**, and all actions flow from the UI to the foreground service and back with real logs and responses (no mocks).
 
 > **Important:** The dashboard must call the required JS functions — `connectGateway`, `disconnectGateway`, `triggerCamsnap`, and `requestStatus` — which are mapped to backend bridge methods and gateway RPCs. This is the minimum functional surface required by the repo contract.【F:docs/PROJECT_RULES.md†L24-L41】【F:RPC_MAP.md†L1-L10】
 
