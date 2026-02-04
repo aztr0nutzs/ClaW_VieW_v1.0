@@ -47,7 +47,7 @@ For full OpenClaw docs, onboarding, and channel-specific setup, see:
 - Docs: https://docs.openclaw.ai/
 - GitHub: https://github.com/openclaw/openclaw
 
-![Claw View Dashboard Detail](assets/claw_view_dash2.png)
+![Claw View Dashboard Detail](assets/claw_view_dash3.png)
 
 Additional dashboard imagery: `assets/claw_view_dash3.png`, `assets/claw_view_dash5.png`.
 
