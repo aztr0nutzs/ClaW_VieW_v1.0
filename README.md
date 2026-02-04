@@ -51,6 +51,8 @@ For full OpenClaw docs, onboarding, and channel-specific setup, see:
 
 ![Claw View Dashboard Detail](assets/claw_view_dash2.png)
 
+Additional dashboard imagery: `assets/claw_view_dash3.png`, `assets/claw_view_dash5.png`.
+
 ## Feature + capability inventory
 
 This section enumerates **every function, capability, and operational contract** implemented or required by this repo.
