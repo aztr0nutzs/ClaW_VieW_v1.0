@@ -213,14 +213,15 @@ class GatewayClient(
     if (type == "register_ack") {
       val ok = msg.optBoolean("ok", false)
       val nextSessionId = msg.optString("sessionId", null).ifBlank { null }
-      val isCurrent = synchronized(lock) { webSocket == socket }
-      if (!isCurrent) {
-        return
+      val (connected, currentSessionId) = synchronized(lock) {
+        if (webSocket != socket) {
+          return
+        }
+        sessionId = if (ok) nextSessionId else null
+        (socket != null) to sessionId
       }
-      sessionId = if (ok) nextSessionId else null
-      val connected = synchronized(lock) { socket == webSocket && socket != null }
-      onState(connected, ok, sessionId, if (ok) null else "REGISTER_ACK_FAILED")
-      onLog("REGISTER_ACK ok=$ok sessionId=${sessionId ?: "none"}")
+      onState(connected, ok, currentSessionId, if (ok) null else "REGISTER_ACK_FAILED")
+      onLog("REGISTER_ACK ok=$ok sessionId=${currentSessionId ?: "none"}")
       logTranscript("RX", "node", "register_ack", msg)
     }
   }
