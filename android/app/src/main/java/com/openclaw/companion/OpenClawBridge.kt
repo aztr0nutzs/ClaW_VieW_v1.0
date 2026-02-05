@@ -19,8 +19,25 @@ class OpenClawBridge(
   @JavascriptInterface
   fun connectGateway(argsJson: String): String {
     Log.i("OPENCLAW_UI", "UI_EVENT connectGateway args=$argsJson")
-    val ok = OpenClawForegroundService.enqueue(context, UiCommand.Connect)
+    val args = runCatching { JSONObject(argsJson) }.getOrNull()
+    val controllerUrl = args?.optString("controllerUrl", null)
+    if (!controllerUrl.isNullOrBlank()) {
+      ControllerConfig.setControllerUrl(context, controllerUrl)
+    }
+    val ok = OpenClawForegroundService.enqueue(context, UiCommand.Connect(controllerUrl))
     return envelope(ok, if (ok) "OK" else "SERVICE_NOT_RUNNING", if (ok) "Connect queued" else "Service not running")
+  }
+
+  @JavascriptInterface
+  fun setControllerUrl(argsJson: String): String {
+    Log.i("OPENCLAW_UI", "UI_EVENT setControllerUrl args=$argsJson")
+    val args = runCatching { JSONObject(argsJson) }.getOrNull()
+    val controllerUrl = args?.optString("controllerUrl", null)
+    if (controllerUrl.isNullOrBlank()) {
+      return envelope(false, "WS_PROTOCOL_ERROR", "controllerUrl required")
+    }
+    ControllerConfig.setControllerUrl(context, controllerUrl)
+    return envelope(true, "OK", "Controller URL saved")
   }
 
   @JavascriptInterface
@@ -43,7 +60,7 @@ class OpenClawBridge(
   @JavascriptInterface
   fun requestStatus(argsJson: String): String {
     Log.i("OPENCLAW_UI", "UI_EVENT requestStatus args=$argsJson")
-    val state = OpenClawForegroundService.getCachedState()
+    val state = OpenClawForegroundService.getUiStateSnapshot()
     val data = JSONObject().put("state", state.toJson())
     return envelope(true, "OK", "State", data)
   }
