@@ -20,9 +20,9 @@ class OpenClawForegroundService : Service() {
     super.onCreate()
     Log.i("OPENCLAW_SERVICE", "SERVICE_START")
 
-    running.set(true)
     val nodeId = NodeIdentity.getOrCreate(this)
     stateRef.set(stateRef.get().copy(nodeId = nodeId))
+    running.set(true)
     Log.i("OPENCLAW_SERVICE", "NODE_ID $nodeId")
 
     ensureChannel()
