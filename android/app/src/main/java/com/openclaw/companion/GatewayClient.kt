@@ -57,7 +57,7 @@ class GatewayClient(
       val type = msg.optString("type", "")
       if (type == "register_ack") {
         val ok = msg.optBoolean("ok", false)
-        onState(ok, ok, if (ok) null else "REGISTER_ACK_FAILED")
+        onState(true, ok, if (ok) null else "REGISTER_ACK_FAILED")
         onLog("REGISTER_ACK ok=$ok")
       }
     }
