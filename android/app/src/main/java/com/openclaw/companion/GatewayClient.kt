@@ -190,13 +190,13 @@ class GatewayClient(
     val type = msg.optString("type", "")
     if (type == "register_ack") {
       val ok = msg.optBoolean("ok", false)
-      val isCurrent = synchronized(lock) { webSocket == socket }
-      if (!isCurrent) {
-        return
+      val isCurrent = synchronized(lock) {
+        webSocket == socket
       }
-      val connected = synchronized(lock) { socket == webSocket && socket != null }
-      onState(connected, ok, if (ok) null else "REGISTER_ACK_FAILED")
-      onLog("REGISTER_ACK ok=$ok")
+      if (isCurrent) {
+        onState(true, ok, if (ok) null else "REGISTER_ACK_FAILED")
+        onLog("REGISTER_ACK ok=$ok")
+      }
     }
   }
 
