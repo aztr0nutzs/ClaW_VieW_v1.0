@@ -1,13 +1,24 @@
 
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.openclaw.gateway">
-    <application android:label="OpenClaw Gateway"
-        android:theme="@style/Theme.Material3.DayNight.NoActionBar">
+    package="com.openclaw.companion">
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:label="OpenClaw Gateway"
+        android:theme="@style/Theme.OpenClaw">
         <activity android:name=".MainActivity">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".OpenClawForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|camera" />
     </application>
 </manifest>
