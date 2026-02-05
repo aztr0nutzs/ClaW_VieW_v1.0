@@ -18,6 +18,7 @@
 
         <service
             android:name=".OpenClawForegroundService"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="dataSync|camera" />
     </application>
 </manifest>
