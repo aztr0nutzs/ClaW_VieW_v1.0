@@ -19,7 +19,9 @@ class OpenClawBridge(
   @JavascriptInterface
   fun connectGateway(argsJson: String): String {
     Log.i("OPENCLAW_UI", "UI_EVENT connectGateway args=$argsJson")
-    val ok = OpenClawForegroundService.enqueue(context, UiCommand.Connect)
+    val args = runCatching { JSONObject(argsJson) }.getOrNull()
+    val controllerUrl = args?.optString("controllerUrl", null)
+    val ok = OpenClawForegroundService.enqueue(context, UiCommand.Connect(controllerUrl))
     return envelope(ok, if (ok) "OK" else "SERVICE_NOT_RUNNING", if (ok) "Connect queued" else "Service not running")
   }
 

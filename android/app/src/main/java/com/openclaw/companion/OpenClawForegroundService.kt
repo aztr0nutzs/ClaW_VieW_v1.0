@@ -8,31 +8,48 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
+import org.json.JSONArray
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 class OpenClawForegroundService : Service() {
+  private var gatewayClient: GatewayClient? = null
 
   override fun onCreate() {
     super.onCreate()
-    Log.i("OPENCLAW_SERVICE", "SERVICE_START")
+    Log.i(LOG_TAG, "SERVICE_START")
+
+    val nodeId = NodeIdentity.getOrCreate(this)
+    updateState { it.copy(nodeId = nodeId) }
+    running.set(true)
+    Log.i(LOG_TAG, "NODE_ID $nodeId")
 
     ensureChannel()
     startForeground(NOTIF_ID, buildNotif("OpenClaw Companion running"))
-    Log.i("OPENCLAW_SERVICE", "START_FOREGROUND notificationId=$NOTIF_ID")
-
+    Log.i(LOG_TAG, "START_FOREGROUND notificationId=$NOTIF_ID")
+    logBatteryOptimizationStatus()
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    // In real implementation, this service owns the gateway and processes commands.
+    Log.i(LOG_TAG, "START_COMMAND startId=$startId flags=$flags intent=${intent?.action}")
     drainQueue()
     return START_STICKY
   }
 
   override fun onDestroy() {
-    Log.i("OPENCLAW_SERVICE", "SERVICE_STOP")
-
+    Log.i(LOG_TAG, "SERVICE_STOP")
+    running.set(false)
+    updateState { it.copy(connected = false, registered = false) }
+    gatewayClient?.shutdown()
+    gatewayClient = null
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+      stopForeground(STOP_FOREGROUND_REMOVE)
+    } else {
+      stopForeground(true)
+    }
     super.onDestroy()
   }
 
@@ -43,26 +60,95 @@ class OpenClawForegroundService : Service() {
       val cmd = queue.poll() ?: break
       when (cmd) {
         is UiCommand.Connect -> {
-          Log.i("OPENCLAW_SERVICE", "SERVICE_CALL connectGateway")
+          Log.i(LOG_TAG, "SERVICE_CALL connectGateway")
 
-          // TODO: call gateway.connect()
-          stateRef.set(stateRef.get().copy(connected = true, controllerUrl = stateRef.get().controllerUrl ?: "ws://<controller>"))
+          val controllerUrl = cmd.controllerUrl ?: stateRef.get().controllerUrl
+          if (controllerUrl.isNullOrBlank()) {
+            Log.w(LOG_TAG, "SERVICE_ERROR missing controllerUrl")
+            updateState { it.copy(lastError = "MISSING_CONTROLLER_URL") }
+            continue
+          }
+          updateState { it.copy(controllerUrl = controllerUrl, lastError = null) }
+          ensureGatewayClient().connect(controllerUrl)
         }
         is UiCommand.Disconnect -> {
-          Log.i("OPENCLAW_SERVICE", "SERVICE_CALL disconnectGateway")
+          Log.i(LOG_TAG, "SERVICE_CALL disconnectGateway")
 
-          // TODO: call gateway.disconnect()
-          stateRef.set(stateRef.get().copy(connected = false, registered = false))
+          gatewayClient?.disconnect()
+          updateState { it.copy(connected = false, registered = false, lastError = null) }
         }
         is UiCommand.Camsnap -> {
-          Log.i("OPENCLAW_SERVICE", "SERVICE_CALL triggerCamsnap quality=${cmd.quality} maxBytes=${cmd.maxBytes}")
-
-          // TODO: run CameraX capture and send via gateway
-          // Until implemented, this MUST remain an explicit failure in capability execution (not here).
+          Log.i(LOG_TAG, "SERVICE_CALL triggerCamsnap quality=${cmd.quality} maxBytes=${cmd.maxBytes}")
+          updateState { it.copy(lastError = "CAMSNAP_NOT_IMPLEMENTED") }
         }
       }
-      Log.i("OPENCLAW_SERVICE", "STATE connected=${stateRef.get().connected} registered=${stateRef.get().registered} lastError=${stateRef.get().lastError}")
+      Log.i(
+        LOG_TAG,
+        "STATE connected=${stateRef.get().connected} registered=${stateRef.get().registered} lastError=${stateRef.get().lastError}",
+      )
+    }
+  }
 
+  private fun ensureGatewayClient(): GatewayClient {
+    if (gatewayClient == null) {
+      gatewayClient = GatewayClient(
+        onState = { connected, registered, lastError ->
+          updateState { it.copy(connected = connected, registered = registered, lastError = lastError) }
+        },
+        onLog = { message ->
+          Log.i(GATEWAY_TAG, message)
+          appendLog("$GATEWAY_TAG $message")
+        },
+        getNodeId = { stateRef.get().nodeId ?: "unknown" },
+        getCapabilities = { capabilityManifest() },
+      )
+    }
+    return gatewayClient!!
+  }
+
+  private fun updateState(transform: (UiState) -> UiState) {
+    stateRef.set(transform(stateRef.get()))
+  }
+
+  private fun appendLog(message: String) {
+    synchronized(logLock) {
+      val next = buildString {
+        val existing = lastLogs.get()
+        if (existing.isNotEmpty()) {
+          append(existing)
+          append("\n")
+        }
+        append(message)
+      }
+      val trimmed = if (next.length > LOG_BUFFER_LIMIT) {
+        next.takeLast(LOG_BUFFER_LIMIT)
+      } else {
+        next
+      }
+      lastLogs.set(trimmed)
+    }
+  }
+
+  private fun capabilityManifest(): JSONArray {
+    return JSONArray()
+      .put(
+        org.json.JSONObject()
+          .put("name", "camsnap")
+          .put("version", 1),
+      )
+  }
+
+  private fun logBatteryOptimizationStatus() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+      Log.i(LOG_TAG, "BATTERY_OPTIMIZATION_UNSUPPORTED sdk=${Build.VERSION.SDK_INT}")
+      return
+    }
+    val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+    val ignoring = powerManager.isIgnoringBatteryOptimizations(packageName)
+    if (ignoring) {
+      Log.i(LOG_TAG, "BATTERY_OPTIMIZATION_OK package=$packageName")
+    } else {
+      Log.w(LOG_TAG, "BATTERY_OPTIMIZATION_PROMPT package=$packageName")
     }
   }
 
@@ -91,10 +177,15 @@ class OpenClawForegroundService : Service() {
   companion object {
     private const val CHANNEL_ID = "openclaw_companion"
     private const val NOTIF_ID = 8787
+    private const val LOG_BUFFER_LIMIT = 4000
+    private const val LOG_TAG = "OPENCLAW_SERVICE"
+    private const val GATEWAY_TAG = "OPENCLAW_GATEWAY"
 
     private val queue = ConcurrentLinkedQueue<UiCommand>()
     private val stateRef = AtomicReference(UiState())
     private val lastLogs = AtomicReference("")
+    private val running = AtomicBoolean(false)
+    private val logLock = Any()
 
     fun intentStart(ctx: Context): Intent = Intent(ctx, OpenClawForegroundService::class.java)
 
@@ -106,7 +197,15 @@ class OpenClawForegroundService : Service() {
       return true
     }
 
-    fun getCachedState(): UiState = stateRef.get()
+    fun getCachedState(): UiState {
+      val state = stateRef.get()
+      return if (running.get()) {
+        state
+      } else {
+        state.copy(connected = false, registered = false)
+      }
+    }
+
     fun getLastLogs(): String = lastLogs.get()
   }
 }

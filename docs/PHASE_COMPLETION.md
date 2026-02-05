@@ -10,9 +10,9 @@ Codex must fill this file as work progresses. No phase is complete without compl
 ✅/❌ Completion: 
 
 ## PHASE_1
-- Commit hash:
-- NodeId shown stable across 2 restarts (paste logs):
-✅/❌ Completion:
+- Commit hash: 90654b6
+- NodeId shown stable across 2 restarts (paste logs): NOT_RUN (no device/logcat in CI)
+✅/❌ Completion: ❌ (device verification required)
 
 ## PHASE_2
 - Commit hash:
