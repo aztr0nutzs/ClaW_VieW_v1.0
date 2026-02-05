@@ -18,7 +18,7 @@ object NodeIdentity {
       return existing
     }
     val nodeId = UUID.randomUUID().toString()
-    prefs.edit().putString(KEY_NODE_ID, nodeId).commit()
+    prefs.edit().putString(KEY_NODE_ID, nodeId).apply()
     Log.i("OPENCLAW_NODE", "NODE_ID_CREATED $nodeId")
     return nodeId
   }
