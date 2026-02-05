@@ -1,4 +1,4 @@
-![Claw View Dashboard Header](/claw_control.png)
+![Claw View Dashboard Header](assets/claw_control.png)
 # Claw View v1.0 — OpenClaw Android Companion 
 <p align="center">
   <a href="https://openclaw.ai/"><img src="https://img.shields.io/badge/Website-openclaw.ai-0ea5e9?style=for-the-badge" alt="OpenClaw Website"></a>
