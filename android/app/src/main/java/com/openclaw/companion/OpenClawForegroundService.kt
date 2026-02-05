@@ -132,7 +132,7 @@ class OpenClawForegroundService : Service() {
   }
 
   private fun updateState(transform: (UiState) -> UiState) {
-    stateRef.set(transform(stateRef.get()))
+    stateRef.updateAndGet(transform)
   }
 
   private fun ensureChannel() {
