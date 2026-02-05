@@ -40,7 +40,7 @@ class OpenClawForegroundService : Service() {
   override fun onDestroy() {
     Log.i("OPENCLAW_SERVICE", "SERVICE_STOP")
     running.set(false)
-    gatewayClient?.disconnect()
+    gatewayClient?.shutdown()
 
     super.onDestroy()
   }
@@ -84,7 +84,6 @@ class OpenClawForegroundService : Service() {
   private fun ensureGatewayClient(): GatewayClient {
     if (gatewayClient == null) {
       gatewayClient = GatewayClient(
-        applicationContext,
         onState = { connected, registered, lastError ->
           updateState { it.copy(connected = connected, registered = registered, lastError = lastError) }
         },
