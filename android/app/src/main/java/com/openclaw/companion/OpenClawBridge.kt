@@ -20,7 +20,7 @@ class OpenClawBridge(
   fun connectGateway(argsJson: String): String {
     Log.i("OPENCLAW_UI", "UI_EVENT connectGateway args=$argsJson")
     val args = runCatching { JSONObject(argsJson) }.getOrNull()
-    val controllerUrl = args?.optString("controllerUrl", null)
+    val controllerUrl = args?.optString("controllerUrl")?.takeIf { it.isNotBlank() }
     val ok = OpenClawForegroundService.enqueue(context, UiCommand.Connect(controllerUrl))
     return envelope(ok, if (ok) "OK" else "SERVICE_NOT_RUNNING", if (ok) "Connect queued" else "Service not running")
   }
