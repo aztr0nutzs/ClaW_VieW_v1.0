@@ -1,179 +1,420 @@
-# OpenClaw Android Companion — CODEX Multi‑Phase Build Blueprint (V4, Explicit)
+CODEX Multi-Phase Build Blueprint (Unblocked / Hardened Edition)
 
-This blueprint is written to stop Codex from doing the usual thing: polishing UI while nothing works.
+This blueprint is written explicitly for Codex execution.
 
-## GLOBAL STOP RULE
-Codex may not advance a phase without the receipts listed for that phase.
-If you cannot produce receipts, output `PHASE_X_FAILED` and stop.
+It is not advisory.
+It is instructional and sequential, but Codex is allowed to proceed through all phases as long as each phase is carefully inspected, tested where possible, and logged.
 
-## Receipts allowed
-- git diff / commit hash
-- adb logcat excerpts containing required tags
-- screenshots/video (describe required content)
-- protocol transcript (TX/RX JSON payloads)
+No phase may block progress due to missing screenshots, receipts, or external artifacts.
 
----
+GLOBAL EXECUTION RULES (APPLY TO ALL PHASES)
 
-## PHASE 0 — Boot + Foreground Reality
-### Build Goal
-Prove ForegroundService starts correctly and GUI loads openclaw_dash.html.
+These rules guide how Codex thinks, not how it blocks itself.
 
-### Implement
-1. Ensure MainActivity loads `file:///android_asset/openclaw_dash.html` first.
-2. On create, start OpenClawForegroundService (startForegroundService).
-3. In service, call startForeground() immediately with visible notification.
-4. Emit log: `OPENCLAW_UI: GUI_LOADED openclaw_dash.html` when WebView finishes loading.
+Assume hostile Android conditions at all times
 
-### Receipts
-- Logcat showing:
-  - OPENCLAW_SERVICE: SERVICE_START
-  - OPENCLAW_SERVICE: START_FOREGROUND
-  - OPENCLAW_UI: GUI_LOADED openclaw_dash.html
-- Screenshot: notification visible + dashboard visible.
-### Completion Mark
-`PHASE_0_COMPLETE`
+Prefer explicit errors and logs over silent success
 
----
+UI changes only count if they are wired to real execution paths
 
-## PHASE 1 — Persistent Node Identity
-### Build Goal
-Node ID is stable across restarts.
+Mock data is allowed only when real data is not yet available, and must be clearly marked
 
-### Implement
-- NodeStore with DataStore/SharedPreferences (choose one, document it).
-- Generate nodeId once (UUID), persist, reuse.
-- Log: OPENCLAW_SERVICE: NODE_ID <id>
+Every phase must:
 
-### Receipts
-- Two app restarts, same NODE_ID log line.
-### Completion Mark
-`PHASE_1_COMPLETE`
+Inspect the relevant code paths
 
----
+Run any tests that are possible at that stage
 
-## PHASE 2 — WebSocket Connect + Register + ACK
-### Build Goal
-Gateway connects and receives register_ack.
+Log observations, results, and open risks
 
-### Implement
-- OpenClawGateway with:
-  - connect(url)
-  - sendRegister()
-  - parse register_ack
-  - maintain sessionId
-- Log TX/RX in OPENCLAW_PROTOCOL.
+Proceed to the next phase
 
-### Receipts
-- OPENCLAW_PROTOCOL: TX register {...}
-- OPENCLAW_PROTOCOL: RX register_ack {... ok:true ...}
-### Completion Mark
-`PHASE_2_COMPLETE`
+Codex must not stop execution unless the system is physically unable to continue (e.g., compiler failure).
 
----
+PHASE 0 — EXECUTION BASELINE (REALITY CHECK)
+Objective
 
-## PHASE 3 — Heartbeat + Reconnect Discipline
-### Build Goal
-Heartbeat runs; disconnect triggers backoff reconnect.
+Confirm the app can build, install, and launch without catastrophic failure.
 
-### Implement
-- heartbeat schedule in service or gateway
-- timeout -> disconnect -> reconnect(backoff+jitter)
-- ensure no reconnect storm (cap attempts)
+Instructions
 
-### Receipts
-- HEARTBEAT_SENT + heartbeat_ack
-- WS_DISCONNECTED + RECONNECT scheduledInMs=...
-### Completion Mark
-`PHASE_3_COMPLETE`
+Build the project using the configured Android toolchain
 
----
+Install on an emulator or physical device
 
-## PHASE 4 — UI → Backend Wiring Contract (openclaw_dash.html)
-### Build Goal
-Dashboard buttons call real service methods and return envelopes.
+Launch the app
 
-### Implement
-- Choose backend surface (Option A local HTTP/WS, or Option B JS Bridge) and document it.
-- Implement handlers for:
-  - connectGateway
-  - disconnectGateway
-  - requestStatus
-- Return envelope JSON and update UiState.
+Observe startup behavior
 
-### Receipts
-For each action:
-- OPENCLAW_UI: UI_EVENT <name>
-- OPENCLAW_SERVICE: SERVICE_CALL <name>
-- OPENCLAW_SERVICE: STATE connected=... registered=...
-### Completion Mark
-`PHASE_4_COMPLETE`
+What to Check
 
----
+Does the app install successfully?
 
-## PHASE 5 — Capability Framework + device_info + network_status
-### Build Goal
-Controller can request a capability and get a real result or explicit failure.
+Does it launch without crashing?
 
-### Implement
-- CapabilityRegistry dispatch
-- Implement DeviceInfoCapability + NetworkStatusCapability
-- Implement capability_request -> capability_result
+Are there immediate ANRs or fatal exceptions?
 
-### Receipts
-- RX capability_request
-- TX capability_result ok=true with real data
-### Completion Mark
-`PHASE_5_COMPLETE`
+Does any service or component start?
 
----
+Required Actions
 
-## PHASE 6 — CAMSNAP (CameraX) End‑to‑End
-### Build Goal
-Camsnap produces real bytes and sends them.
+Review logcat during launch
 
-### Implement
-- CamsnapCapability using CameraX
-- Permission checks with explicit PERMISSION_DENIED failure
-- Encode JPEG, enforce maxBytes, return imageId/bytes/mime
+Note any warnings or errors
 
-### Receipts
-- OPENCLAW_CAMSNAP: CAPTURE_OK bytes=...
-- OPENCLAW_PROTOCOL: TX capability_result ok=true {bytes,mime,imageId}
-- Controller receipt noted (log or ack)
-### Completion Mark
-`PHASE_6_COMPLETE`
+Fix only blocking issues; log non-blocking issues
 
----
+Phase Output
 
-## PHASE 7 — Truthful UI State Feed
-### Build Goal
-openclaw_dash.html shows real state, updates live.
+Summary of startup behavior
 
-### Implement
-- Push UiState to UI via:
-  - WS /ui/events, OR
-  - JS bridge callback, OR
-  - polling /ui/state
-- Disconnect network: UI flips to disconnected and shows lastError.
+List of issues found (blocking vs non-blocking)
 
-### Receipts
-- Screenshot disconnected state
-- Logs proving state transition
-### Completion Mark
-`PHASE_7_COMPLETE`
+Proceed regardless, unless the app cannot launch at all.
 
----
+PHASE 1 — FOREGROUND SERVICE AUTHORITY
+Objective
 
-## PHASE 8 — Hard Failure Mode Tests
-### Build Goal
-Explicit failures with correct codes and UI messaging.
+Establish a single authoritative ForegroundService as the execution core.
 
-### Tests
-- deny camera permission -> PERMISSION_DENIED
-- controller unreachable -> CONTROLLER_UNREACHABLE
-- camera busy -> CAMERA_UNAVAILABLE
+Instructions
 
-### Receipts
-- logs + UI error banner screenshot per test
-### Completion Mark
-`PHASE_8_COMPLETE`
+Identify or implement exactly one ForegroundService responsible for:
+
+Networking
+
+Gateway state
+
+Capability execution
+
+Inspect lifecycle methods:
+
+onCreate
+
+onStartCommand
+
+onDestroy
+
+Ensure startForeground() is called within Android time limits
+
+What to Check
+
+Is there exactly one service acting as the core?
+
+Is lifecycle handling explicit and defensive?
+
+Does the service survive app backgrounding?
+
+Required Actions
+
+Run the app, background it, return to it
+
+Observe service logs
+
+Fix lifecycle issues that cause service death
+
+Phase Output
+
+Service architecture summary
+
+Known lifecycle risks
+
+PHASE 2 — NODE IDENTITY & PERSISTENCE
+Objective
+
+Ensure the app behaves as a stable OpenClaw node.
+
+Instructions
+
+Generate a Node ID once
+
+Persist it in durable storage (SharedPreferences, file, or DB)
+
+Reload the same ID across restarts
+
+What to Check
+
+Is the Node ID generated deterministically?
+
+Is it reloaded correctly?
+
+Does reinstall/reset behavior make sense?
+
+Required Actions
+
+Restart the app
+
+Verify Node ID consistency via logs
+
+Fix regeneration bugs if present
+
+Phase Output
+
+Node ID generation method
+
+Persistence mechanism
+
+Known edge cases
+
+PHASE 3 — GATEWAY CONNECTION & HANDSHAKE
+Objective
+
+Establish real communication with an OpenClaw gateway.
+
+Instructions
+
+Implement WebSocket (or equivalent) client
+
+Perform registration handshake
+
+Transmit capability manifest
+
+Handle ACK / error responses
+
+What to Check
+
+Is the handshake explicit and structured?
+
+Are errors handled cleanly?
+
+Can the connection be re-established?
+
+Required Actions
+
+Attempt connection
+
+Simulate disconnect
+
+Observe reconnect behavior
+
+Phase Output
+
+Handshake flow description
+
+Connection stability notes
+
+PHASE 4 — HEARTBEAT & RESILIENCE
+Objective
+
+Keep the node alive under unstable conditions.
+
+Instructions
+
+Implement periodic heartbeat
+
+Detect heartbeat failure
+
+Reconnect with backoff
+
+What to Check
+
+Heartbeat interval correctness
+
+Timeout detection
+
+Backoff logic sanity
+
+Required Actions
+
+Disable network temporarily
+
+Restore network
+
+Observe recovery behavior
+
+Phase Output
+
+Heartbeat design summary
+
+Failure handling notes
+
+PHASE 5 — CAPABILITY FRAMEWORK
+Objective
+
+Execute real on-device capabilities.
+
+Instructions
+
+Define a capability registry
+
+Map required permissions per capability
+
+Return structured success/failure responses
+
+What to Check
+
+Are capabilities discoverable?
+
+Are permissions checked before execution?
+
+Are failures explicit?
+
+Required Actions
+
+Execute at least one capability
+
+Deny permission and retry
+
+Log both paths
+
+Phase Output
+
+Capability list
+
+Permission handling notes
+
+PHASE 6 — CAMSNAP (CameraX)
+Objective
+
+Confirm real camera capture and transmission.
+
+Instructions
+
+Initialize CameraX from the ForegroundService
+
+Enforce runtime permissions
+
+Capture → encode → transmit
+
+What to Check
+
+Camera lifecycle correctness
+
+Permission denial handling
+
+Resource cleanup
+
+Required Actions
+
+Capture at least one image
+
+Test permission denial
+
+Test camera unavailable state
+
+Phase Output
+
+Camera pipeline summary
+
+Known device quirks
+
+PHASE 7 — MAIN GUI INTEGRATION (openclaw_dash.html)
+Objective
+
+Make openclaw_dash.html the single authoritative GUI, fully wired to backend logic.
+
+Non-Negotiable Design Rules
+
+openclaw_dash.html is the first UI shown
+
+One transport only:
+
+HTTP/WS to local server or
+
+addJavascriptInterface routed into the ForegroundService
+
+No UI action exists without backend handling
+
+Instructions
+
+Set openclaw_dash.html as the launch UI
+
+Define a clear UI → backend action map
+
+Wire every button and event to real service code
+
+Ensure UI state reflects actual service state
+
+What to Check
+
+Do buttons trigger real execution?
+
+Does UI update on real state changes?
+
+Are missing handlers explicitly reported?
+
+Required Actions
+
+Click every major UI action
+
+Observe backend logs
+
+Fix dead or misleading UI elements
+
+Phase Output
+
+UI ↔ backend mapping summary
+
+Known UI limitations
+
+PHASE 8 — FAILURE MODES & HARDENING
+Objective
+
+Handle failure honestly and visibly.
+
+Instructions
+
+Revoke permissions mid-run
+
+Simulate camera failure
+
+Simulate gateway unavailability
+
+What to Check
+
+Are failures surfaced clearly?
+
+Is the system stable after failure?
+
+Does recovery work?
+
+Required Actions
+
+Trigger failures intentionally
+
+Observe behavior
+
+Fix silent failures
+
+Phase Output
+
+Failure handling summary
+
+Remaining hardening tasks
+
+PHASE 9 — FINAL ACCEPTANCE
+Objective
+
+Declare the system operationally ready.
+
+Instructions
+
+Restart app
+
+Reconnect to gateway
+
+Execute at least one capability
+
+Confirm UI reflects reality
+
+What to Check
+
+No regressions
+
+No fake success states
+
+Acceptable stability
+
+Phase Output
+
+Final readiness summary
+
+Known follow-ups
+
+EXECUTION PRINCIPLE (IMPORTANT)
+
+Codex must never block itself due to missing artifacts, screenshots, or external proof.
+
+The rule is simple:
+
+Inspect carefully → test what is possible → log results → proceed.
