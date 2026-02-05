@@ -3,6 +3,7 @@ package com.openclaw.companion
 import org.json.JSONObject
 
 data class UiState(
+  val nodeId: String? = null,
   val connected: Boolean = false,
   val registered: Boolean = false,
   val lastHeartbeat: String? = null,
@@ -10,6 +11,7 @@ data class UiState(
   val controllerUrl: String? = null,
 ) {
   fun toJson(): JSONObject = JSONObject()
+    .put("nodeId", nodeId)
     .put("connected", connected)
     .put("registered", registered)
     .put("lastHeartbeat", lastHeartbeat)

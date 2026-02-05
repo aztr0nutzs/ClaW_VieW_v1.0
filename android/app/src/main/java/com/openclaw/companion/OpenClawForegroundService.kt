@@ -10,13 +10,20 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 class OpenClawForegroundService : Service() {
+  private var gatewayClient: GatewayClient? = null
 
   override fun onCreate() {
     super.onCreate()
     Log.i("OPENCLAW_SERVICE", "SERVICE_START")
+
+    running.set(true)
+    val nodeId = NodeIdentity.getOrCreate(this)
+    stateRef.set(stateRef.get().copy(nodeId = nodeId))
+    Log.i("OPENCLAW_SERVICE", "NODE_ID $nodeId")
 
     ensureChannel()
     startForeground(NOTIF_ID, buildNotif("OpenClaw Companion running"))
@@ -32,6 +39,8 @@ class OpenClawForegroundService : Service() {
 
   override fun onDestroy() {
     Log.i("OPENCLAW_SERVICE", "SERVICE_STOP")
+    running.set(false)
+    gatewayClient?.disconnect()
 
     super.onDestroy()
   }
@@ -45,14 +54,20 @@ class OpenClawForegroundService : Service() {
         is UiCommand.Connect -> {
           Log.i("OPENCLAW_SERVICE", "SERVICE_CALL connectGateway")
 
-          // TODO: call gateway.connect()
-          stateRef.set(stateRef.get().copy(connected = true, controllerUrl = stateRef.get().controllerUrl ?: "ws://<controller>"))
+          val controllerUrl = cmd.controllerUrl ?: stateRef.get().controllerUrl
+          if (controllerUrl.isNullOrBlank()) {
+            Log.w("OPENCLAW_SERVICE", "SERVICE_ERROR missing controllerUrl")
+            updateState { it.copy(lastError = "MISSING_CONTROLLER_URL") }
+            return
+          }
+          updateState { it.copy(controllerUrl = controllerUrl, lastError = null) }
+          ensureGatewayClient().connect(controllerUrl)
         }
         is UiCommand.Disconnect -> {
           Log.i("OPENCLAW_SERVICE", "SERVICE_CALL disconnectGateway")
 
-          // TODO: call gateway.disconnect()
-          stateRef.set(stateRef.get().copy(connected = false, registered = false))
+          gatewayClient?.disconnect()
+          updateState { it.copy(connected = false, registered = false) }
         }
         is UiCommand.Camsnap -> {
           Log.i("OPENCLAW_SERVICE", "SERVICE_CALL triggerCamsnap quality=${cmd.quality} maxBytes=${cmd.maxBytes}")
@@ -64,6 +79,24 @@ class OpenClawForegroundService : Service() {
       Log.i("OPENCLAW_SERVICE", "STATE connected=${stateRef.get().connected} registered=${stateRef.get().registered} lastError=${stateRef.get().lastError}")
 
     }
+  }
+
+  private fun ensureGatewayClient(): GatewayClient {
+    if (gatewayClient == null) {
+      gatewayClient = GatewayClient(
+        applicationContext,
+        onState = { connected, registered, lastError ->
+          updateState { it.copy(connected = connected, registered = registered, lastError = lastError) }
+        },
+        onLog = { message -> Log.i("OPENCLAW_GATEWAY", message) },
+        getNodeId = { stateRef.get().nodeId ?: "unknown" },
+      )
+    }
+    return gatewayClient!!
+  }
+
+  private fun updateState(transform: (UiState) -> UiState) {
+    stateRef.set(transform(stateRef.get()))
   }
 
   private fun ensureChannel() {
@@ -95,6 +128,7 @@ class OpenClawForegroundService : Service() {
     private val queue = ConcurrentLinkedQueue<UiCommand>()
     private val stateRef = AtomicReference(UiState())
     private val lastLogs = AtomicReference("")
+    private val running = AtomicBoolean(false)
 
     fun intentStart(ctx: Context): Intent = Intent(ctx, OpenClawForegroundService::class.java)
 
@@ -106,7 +140,14 @@ class OpenClawForegroundService : Service() {
       return true
     }
 
-    fun getCachedState(): UiState = stateRef.get()
+    fun getUiStateSnapshot(): UiState {
+      val state = stateRef.get()
+      return if (running.get()) {
+        state
+      } else {
+        state.copy(nodeId = null, connected = false, registered = false)
+      }
+    }
     fun getLastLogs(): String = lastLogs.get()
   }
 }
