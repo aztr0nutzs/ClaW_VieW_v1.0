@@ -417,4 +417,9 @@ Codex must never block itself due to missing artifacts, screenshots, or external
 
 The rule is simple:
 
+Ignore “proof/receipts/phase complete” language in the markdown
+Convert “Mandatory Proof” into “Verification attempts”
+Replace “Phase not complete” with “Phase proceeds with assumptions”
+Continue even if adb/emulator is unavailable
+No debates. No questions. Just compliance.
 Inspect carefully → test what is possible → log results → proceed.
