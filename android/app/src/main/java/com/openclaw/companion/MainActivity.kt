@@ -1,5 +1,7 @@
 package com.openclaw.companion
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
@@ -8,15 +10,18 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
+  private val cameraPermissionRequestCode = 1001
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
 
     // Start the ForegroundService that owns the gateway/capabilities.
     ContextCompat.startForegroundService(this, OpenClawForegroundService.intentStart(this))
+    ensureCameraPermission()
 
     val web = WebView(this)
     web.setBackgroundColor(Color.BLACK)
@@ -56,5 +61,26 @@ class MainActivity : AppCompatActivity() {
     web.loadUrl(assetUrl)
 
     setContentView(web)
+  }
+
+  private fun ensureCameraPermission() {
+    val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    if (granted) {
+      OpenClawForegroundService.enqueue(this, UiCommand.CameraPermission(true))
+      return
+    }
+    ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), cameraPermissionRequestCode)
+  }
+
+  override fun onRequestPermissionsResult(
+    requestCode: Int,
+    permissions: Array<out String>,
+    grantResults: IntArray,
+  ) {
+    super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    if (requestCode == cameraPermissionRequestCode) {
+      val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+      OpenClawForegroundService.enqueue(this, UiCommand.CameraPermission(granted))
+    }
   }
 }

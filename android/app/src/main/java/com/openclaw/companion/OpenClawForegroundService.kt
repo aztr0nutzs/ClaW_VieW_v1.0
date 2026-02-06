@@ -1,29 +1,49 @@
 package com.openclaw.companion
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
-import android.os.IBinder
 import android.os.PowerManager
+import android.util.Base64
 import android.util.Log
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.LifecycleService
 import org.json.JSONArray
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.time.Instant
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
-class OpenClawForegroundService : Service() {
+class OpenClawForegroundService : LifecycleService() {
   private var gatewayClient: GatewayClient? = null
+  private var cameraProvider: ProcessCameraProvider? = null
+  private var imageCapture: ImageCapture? = null
+  private var imageCaptureQuality: Int = -1
+  private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+  private val cameraLock = Any()
 
   override fun onCreate() {
     super.onCreate()
     Log.i(LOG_TAG, "SERVICE_START")
 
     val nodeId = NodeIdentity.getOrCreate(this)
-    updateState { it.copy(nodeId = nodeId) }
+    updateState { it.copy(nodeId = nodeId, cameraPermissionGranted = hasCameraPermission()) }
     running.set(true)
     Log.i(LOG_TAG, "NODE_ID $nodeId")
 
@@ -31,6 +51,7 @@ class OpenClawForegroundService : Service() {
     startForeground(NOTIF_ID, buildNotif("OpenClaw Companion running"))
     Log.i(LOG_TAG, "START_FOREGROUND notificationId=$NOTIF_ID")
     logBatteryOptimizationStatus()
+    initCameraProvider()
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -45,6 +66,8 @@ class OpenClawForegroundService : Service() {
     updateState { it.copy(connected = false, registered = false) }
     gatewayClient?.shutdown()
     gatewayClient = null
+    cameraProvider?.unbindAll()
+    cameraExecutor.shutdown()
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
       stopForeground(STOP_FOREGROUND_REMOVE)
     } else {
@@ -52,8 +75,6 @@ class OpenClawForegroundService : Service() {
     }
     super.onDestroy()
   }
-
-  override fun onBind(intent: Intent?): IBinder? = null
 
   private fun drainQueue() {
     while (true) {
@@ -79,7 +100,16 @@ class OpenClawForegroundService : Service() {
         }
         is UiCommand.Camsnap -> {
           Log.i(LOG_TAG, "SERVICE_CALL triggerCamsnap quality=${cmd.quality} maxBytes=${cmd.maxBytes}")
-          updateState { it.copy(lastError = "CAMSNAP_NOT_IMPLEMENTED") }
+          triggerCamsnap("ui-${System.currentTimeMillis()}", cmd.quality, cmd.maxBytes)
+        }
+        is UiCommand.CameraPermission -> {
+          Log.i(LOG_TAG, "SERVICE_CALL cameraPermission granted=${cmd.granted}")
+          updateState {
+            it.copy(
+              cameraPermissionGranted = cmd.granted,
+              lastError = if (cmd.granted) null else "CAMERA_PERMISSION_DENIED",
+            )
+          }
         }
       }
       Log.i(
@@ -101,13 +131,21 @@ class OpenClawForegroundService : Service() {
         },
         getNodeId = { stateRef.get().nodeId ?: "unknown" },
         getCapabilities = { capabilityManifest() },
+        onHeartbeat = {
+          updateState { it.copy(lastHeartbeat = Instant.now().toString()) }
+        },
+        onCapabilityRequest = { request ->
+          handleCapabilityRequest(request)
+        },
       )
     }
     return gatewayClient!!
   }
 
   private fun updateState(transform: (UiState) -> UiState) {
-    stateRef.set(transform(stateRef.get()))
+    val next = transform(stateRef.get())
+    stateRef.set(next)
+    stateSink.get()?.invoke(next.toJson().toString())
   }
 
   private fun appendLog(message: String) {
@@ -131,11 +169,202 @@ class OpenClawForegroundService : Service() {
 
   private fun capabilityManifest(): JSONArray {
     return JSONArray()
-      .put(
-        org.json.JSONObject()
-          .put("name", "camsnap")
-          .put("version", 1),
+      .put("camsnap")
+  }
+
+  private fun hasCameraPermission(): Boolean {
+    return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+  }
+
+  private fun initCameraProvider() {
+    val providerFuture = ProcessCameraProvider.getInstance(this)
+    providerFuture.addListener(
+      {
+        cameraProvider = providerFuture.get()
+        Log.i(LOG_TAG, "CAMERA_PROVIDER_READY")
+      },
+      ContextCompat.getMainExecutor(this),
+    )
+  }
+
+  private fun handleCapabilityRequest(request: CapabilityRequest) {
+    if (request.capability != "camsnap") {
+      sendCapabilityResult(
+        requestId = request.requestId,
+        capability = request.capability,
+        ok = false,
+        result = null,
+        error = JSONObject().put("code", "CAPABILITY_UNKNOWN").put("message", "Unknown capability"),
       )
+      return
+    }
+    val quality = request.args.optInt("quality", 85)
+    val maxBytes = request.args.optInt("maxBytes", 600000)
+    triggerCamsnap(request.requestId, quality, maxBytes)
+  }
+
+  private fun triggerCamsnap(requestId: String, quality: Int, maxBytes: Int) {
+    val state = stateRef.get()
+    if (!state.connected || !state.registered) {
+      updateState { it.copy(lastError = "NOT_CONNECTED") }
+      sendCapabilityResult(
+        requestId = requestId,
+        capability = "camsnap",
+        ok = false,
+        result = null,
+        error = JSONObject().put("code", "NOT_CONNECTED").put("message", "Gateway not connected"),
+      )
+      return
+    }
+    if (!hasCameraPermission()) {
+      updateState { it.copy(lastError = "CAMERA_PERMISSION_DENIED", cameraPermissionGranted = false) }
+      sendCapabilityResult(
+        requestId = requestId,
+        capability = "camsnap",
+        ok = false,
+        result = null,
+        error = JSONObject().put("code", "PERMISSION_DENIED").put("message", "Camera permission denied"),
+      )
+      return
+    }
+    val capture = prepareImageCapture(quality)
+    if (capture == null) {
+      updateState { it.copy(lastError = "CAMERA_NOT_READY") }
+      sendCapabilityResult(
+        requestId = requestId,
+        capability = "camsnap",
+        ok = false,
+        result = null,
+        error = JSONObject().put("code", "CAMERA_NOT_READY").put("message", "Camera is not ready"),
+      )
+      return
+    }
+
+    val outputFile = File.createTempFile("camsnap_", ".jpg", cacheDir)
+    val outputOptions = ImageCapture.OutputFileOptions.Builder(outputFile).build()
+    capture.takePicture(
+      outputOptions,
+      cameraExecutor,
+      object : ImageCapture.OnImageSavedCallback {
+        override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+          val rawBytes = runCatching { outputFile.readBytes() }.getOrNull()
+          outputFile.delete()
+          if (rawBytes == null) {
+            updateState { it.copy(lastError = "CAMSNAP_READ_FAILED") }
+            sendCapabilityResult(
+              requestId = requestId,
+              capability = "camsnap",
+              ok = false,
+              result = null,
+              error = JSONObject().put("code", "CAMSNAP_READ_FAILED").put("message", "Failed to read image"),
+            )
+            return
+          }
+
+          val tuned = tuneImageSize(rawBytes, quality, maxBytes)
+          val bytes = tuned.bytes
+          val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
+          val result = JSONObject()
+            .put("mimeType", "image/jpeg")
+            .put("bytesB64", encoded)
+            .put("sizeBytes", bytes.size)
+            .put("width", tuned.width)
+            .put("height", tuned.height)
+            .put("quality", tuned.quality)
+
+          sendCapabilityResult(
+            requestId = requestId,
+            capability = "camsnap",
+            ok = true,
+            result = result,
+            error = null,
+          )
+        }
+
+        override fun onError(exception: ImageCaptureException) {
+          outputFile.delete()
+          updateState { it.copy(lastError = "CAMSNAP_FAILED") }
+          sendCapabilityResult(
+            requestId = requestId,
+            capability = "camsnap",
+            ok = false,
+            result = null,
+            error = JSONObject().put("code", "CAMSNAP_FAILED").put("message", exception.message ?: "Capture failed"),
+          )
+        }
+      },
+    )
+  }
+
+  private fun prepareImageCapture(quality: Int): ImageCapture? {
+    val provider = cameraProvider ?: return null
+    synchronized(cameraLock) {
+      if (imageCapture == null || imageCaptureQuality != quality) {
+        val capture = ImageCapture.Builder()
+          .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+          .setJpegQuality(quality.coerceIn(1, 100))
+          .build()
+        return try {
+          provider.unbindAll()
+          provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, capture)
+          imageCapture = capture
+          imageCaptureQuality = quality
+          capture
+        } catch (e: Exception) {
+          Log.e(LOG_TAG, "CAMERA_BIND_FAILED ${e.message}")
+          null
+        }
+      }
+      return imageCapture
+    }
+  }
+
+  private data class TunedImage(val bytes: ByteArray, val width: Int, val height: Int, val quality: Int)
+
+  private fun tuneImageSize(rawBytes: ByteArray, baseQuality: Int, maxBytes: Int): TunedImage {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, bounds)
+    if (maxBytes <= 0 || rawBytes.size <= maxBytes) {
+      return TunedImage(rawBytes, bounds.outWidth, bounds.outHeight, baseQuality)
+    }
+    val bitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
+      ?: return TunedImage(rawBytes, bounds.outWidth, bounds.outHeight, baseQuality)
+    val width = bitmap.width
+    val height = bitmap.height
+    var quality = baseQuality.coerceIn(1, 100)
+    var bytes = rawBytes
+    while (quality > 30 && bytes.size > maxBytes) {
+      quality = (quality - 10).coerceAtLeast(30)
+      val out = ByteArrayOutputStream()
+      bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
+      bytes = out.toByteArray()
+    }
+    bitmap.recycle()
+    return TunedImage(bytes, width, height, quality)
+  }
+
+  private fun sendCapabilityResult(
+    requestId: String,
+    capability: String,
+    ok: Boolean,
+    result: JSONObject?,
+    error: JSONObject?,
+  ) {
+    val sent = gatewayClient?.sendCapabilityResult(requestId, capability, ok, result, error) == true
+    val errorCode = error?.optString("code", null)
+    val resolvedError = when {
+      !sent && errorCode == null -> "GATEWAY_NOT_CONNECTED"
+      else -> errorCode
+    }
+    updateState {
+      it.copy(
+        lastCapability = capability,
+        lastCapabilityOk = ok,
+        lastCapabilityError = resolvedError,
+        lastCapabilityTs = Instant.now().toString(),
+        lastError = if (!ok) resolvedError else if (!sent) "GATEWAY_NOT_CONNECTED" else null,
+      )
+    }
   }
 
   private fun logBatteryOptimizationStatus() {
@@ -185,6 +414,7 @@ class OpenClawForegroundService : Service() {
     private val stateRef = AtomicReference(UiState())
     private val lastLogs = AtomicReference("")
     private val running = AtomicBoolean(false)
+    private val stateSink = AtomicReference<((String) -> Unit)?>(null)
     private val logLock = Any()
 
     fun intentStart(ctx: Context): Intent = Intent(ctx, OpenClawForegroundService::class.java)
@@ -207,5 +437,10 @@ class OpenClawForegroundService : Service() {
     }
 
     fun getLastLogs(): String = lastLogs.get()
+
+    fun registerStateSink(sink: ((String) -> Unit)?) {
+      stateSink.set(sink)
+      sink?.invoke(getCachedState().toJson().toString())
+    }
   }
 }

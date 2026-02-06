@@ -16,6 +16,12 @@ class OpenClawBridge(
   private val webView: WebView,
 ) {
 
+  init {
+    OpenClawForegroundService.registerStateSink { stateJson ->
+      pushStateToJs(stateJson)
+    }
+  }
+
   @JavascriptInterface
   fun connectGateway(argsJson: String): String {
     Log.i("OPENCLAW_UI", "UI_EVENT connectGateway args=$argsJson")
@@ -61,7 +67,7 @@ class OpenClawBridge(
   /** Optional: service can call this to push state into JS. */
   fun pushStateToJs(stateJson: String) {
     webView.post {
-      val js = "window.onStateUpdate(${JSONObject.quote(stateJson)});"
+      val js = "if (window.onStateUpdate) { window.onStateUpdate(${JSONObject.quote(stateJson)}); }"
 
       webView.evaluateJavascript(js, null)
     }

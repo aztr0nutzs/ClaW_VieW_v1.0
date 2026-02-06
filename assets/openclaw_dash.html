@@ -91,6 +91,13 @@ button{
   animation: buttonGlow 4s ease infinite;
 }
 button:hover{ transform:translateY(-2px); box-shadow: 0 18px 40px rgba(0,0,0,0.6), 0 0 30px rgba(255,0,255,0.12); }
+button:disabled{
+  opacity:0.45;
+  cursor:not-allowed;
+  filter: grayscale(0.6);
+  box-shadow: none;
+  animation: none;
+}
 @keyframes buttonGlow {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
@@ -210,6 +217,21 @@ button:hover{ transform:translateY(-2px); box-shadow: 0 18px 40px rgba(0,0,0,0.6
   overflow:auto;
 }
 .nn-side.open{ transform: translateX(0); }
+
+.error-banner{
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  margin: 0 14px 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 63, 90, 0.18);
+  border: 1px solid rgba(255, 63, 90, 0.45);
+  color: #ffe5ea;
+  display: none;
+  box-shadow: 0 0 22px rgba(255, 63, 90, 0.25);
+}
+.error-banner.show{ display:block; }
 
 .nn-side-header{
   display:flex;
@@ -579,7 +601,7 @@ input, .mono{
 
   <div class="right">
     <button class="cybr-btn" type="button" id="btnConnect">
-      Connect
+      <span class="btn-label" id="btnConnectLabel">Connect</span>
       <span aria-hidden class="cybr-btn__glitch">Connect</span>
     </button>
 
@@ -595,15 +617,17 @@ input, .mono{
   </div>
 </header>
 
+<div class="error-banner" id="errorBanner" role="alert" aria-live="polite"></div>
+
 <main class="nn-main">
   <section class="glass-panel" style="position:relative; width:auto; margin:0 0 14px; max-width:none;">
     <div class="neon-title" style="font-size:2.0rem" id="titleText">OPENCLAW</div>
-    <p class="subtitle" id="subText">Gateway dashboard shell. The sidebar tabs are wired. The backend is still your problem (as usual).</p>
+    <p class="subtitle" id="subText">Gateway dashboard connected to your Android companion.</p>
 
     <div class="badges">
-      <div class="badge" id="badgeAgent"><span class="dot"></span><span>AGENT: <b>none</b></span></div>
-      <div class="badge" id="badgeMemory"><span class="dot"></span><span>MEMORY: <b>unknown</b></span></div>
-      <div class="badge" id="badgeGateways"><span class="dot"></span><span>GATEWAYS: <b>unknown</b></span></div>
+      <div class="badge" id="badgeAgent"><span class="dot"></span><span>NODE: <b>unknown</b></span></div>
+      <div class="badge" id="badgeMemory"><span class="dot"></span><span>REGISTERED: <b>no</b></span></div>
+      <div class="badge" id="badgeGateways"><span class="dot"></span><span>HEARTBEAT: <b>never</b></span></div>
     </div>
   </section>
 
@@ -662,9 +686,13 @@ input, .mono{
       <div class="card">
         <h2>Runtime status</h2>
         <div class="kv" id="kvStatus">
-          <div>Host</div><div class="mono" id="stHost">not set</div>
-          <div>Profile</div><div class="mono" id="stProfile">default</div>
-          <div>Workspace</div><div class="mono" id="stWorkspace">~/.openclaw/workspace</div>
+          <div>Controller URL</div><div class="mono" id="stHost">not set</div>
+          <div>Node ID</div><div class="mono" id="stProfile">unknown</div>
+          <div>Connected</div><div class="mono" id="stConnected">false</div>
+          <div>Registered</div><div class="mono" id="stRegistered">false</div>
+          <div>Last heartbeat</div><div class="mono" id="stHeartbeat">never</div>
+          <div>Last capability</div><div class="mono" id="stCapability">none</div>
+          <div>Last error</div><div class="mono" id="stError">none</div>
           <div>Last sync</div><div class="mono" id="stSync">never</div>
         </div>
 
@@ -694,6 +722,12 @@ input, .mono{
           <button class="cybr-btn" type="button" data-open="settings" style="flex:1;">
             Settings
             <span aria-hidden class="cybr-btn__glitch">Settings</span>
+          </button>
+        </div>
+        <div class="row" style="margin-top:10px;">
+          <button class="cybr-btn" type="button" id="btnCamsnap" style="flex:1;">
+            Capture image
+            <span aria-hidden class="cybr-btn__glitch">Capture</span>
           </button>
         </div>
 
@@ -1156,7 +1190,19 @@ input, .mono{
 /* ===== Demo data + wiring hooks ===== */
 (function(){
   const state = {
-    connected: false,
+    service: {
+      nodeId: null,
+      connected: false,
+      registered: false,
+      lastHeartbeat: null,
+      lastError: null,
+      controllerUrl: null,
+      cameraPermissionGranted: null,
+      lastCapability: null,
+      lastCapabilityOk: null,
+      lastCapabilityError: null,
+      lastCapabilityTs: null,
+    },
     host: '',
     profile: 'default',
     workspace: '~/.openclaw/workspace',
@@ -1181,6 +1227,44 @@ input, .mono{
   };
 
   const el = (id)=>document.getElementById(id);
+  const banner = el('errorBanner');
+
+  const bridge = window.OpenClawBridge || null;
+  const bridgeMethods = {
+    connectGateway: bridge && typeof bridge.connectGateway === 'function',
+    disconnectGateway: bridge && typeof bridge.disconnectGateway === 'function',
+    triggerCamsnap: bridge && typeof bridge.triggerCamsnap === 'function',
+    requestStatus: bridge && typeof bridge.requestStatus === 'function',
+    getLastLogs: bridge && typeof bridge.getLastLogs === 'function',
+  };
+
+  const showBanner = (msg)=>{
+    if(!banner) return;
+    banner.textContent = msg;
+    banner.classList.add('show');
+    window.clearTimeout(banner._timer);
+    banner._timer = window.setTimeout(()=> banner.classList.remove('show'), 5000);
+  };
+
+  const formatTimestamp = (value)=>{
+    if(!value) return 'never';
+    const parsed = Date.parse(value);
+    if(Number.isNaN(parsed)) return value;
+    return new Date(parsed).toLocaleString();
+  };
+
+  const parseBridgeResponse = (raw)=>{
+    try { return JSON.parse(raw); } catch(err){ return { ok:false, code:'PARSE_FAILED', message: String(err) }; }
+  };
+
+  const callBridge = (method, payload)=>{
+    if(!bridge || !bridgeMethods[method]) {
+      showBanner(`Bridge method unavailable: ${method}`);
+      return { ok:false, code:'BRIDGE_MISSING', message:`Bridge method unavailable: ${method}` };
+    }
+    const response = bridge[method](JSON.stringify(payload || {}));
+    return parseBridgeResponse(response);
+  };
 
   const log = (msg)=>{
     const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
@@ -1213,18 +1297,23 @@ input, .mono{
     const m = el('badgeMemory');
     const g = el('badgeGateways');
 
-    a.querySelector('b').textContent = state.agent ? state.agent.name : 'none';
-    m.querySelector('b').textContent = state.memory.indexed ? `${state.memory.items} items` : 'not indexed';
-
-    const up = state.gateways.filter(x=>x.status==='up').length;
-    g.querySelector('b').textContent = `${up}/${state.gateways.length} up`;
+    a.querySelector('b').textContent = state.service.nodeId || 'unknown';
+    m.querySelector('b').textContent = state.service.registered ? 'yes' : 'no';
+    g.querySelector('b').textContent = formatTimestamp(state.service.lastHeartbeat);
   }
 
   function renderTop(){
-    el('quickStatus').textContent = state.connected ? 'CONNECTED' : 'DISCONNECTED';
-    el('stHost').textContent = state.host || 'not set';
-    el('stProfile').textContent = state.profile || 'default';
-    el('stWorkspace').textContent = state.workspace || '~/.openclaw/workspace';
+    el('quickStatus').textContent = state.service.connected ? 'CONNECTED' : 'DISCONNECTED';
+    el('stHost').textContent = state.service.controllerUrl || state.host || 'not set';
+    el('stProfile').textContent = state.service.nodeId || 'unknown';
+    el('stConnected').textContent = state.service.connected ? 'true' : 'false';
+    el('stRegistered').textContent = state.service.registered ? 'true' : 'false';
+    el('stHeartbeat').textContent = formatTimestamp(state.service.lastHeartbeat);
+    const capLabel = state.service.lastCapability
+      ? `${state.service.lastCapability} (${state.service.lastCapabilityOk ? 'ok' : 'fail'})`
+      : 'none';
+    el('stCapability').textContent = capLabel;
+    el('stError').textContent = state.service.lastError || 'none';
   }
 
   function renderAgents(){
@@ -1305,41 +1394,92 @@ input, .mono{
     renderTasks();
     renderSelectedAgent();
     el('modeOut').textContent = state.mode;
+    const oc = el('overviewConsole');
+    if(oc) oc.textContent = state.service.lastError ? `Error: ${state.service.lastError}` : 'Ready.';
+    const label = el('btnConnectLabel');
+    if(label) label.textContent = state.service.connected ? 'Disconnect' : 'Connect';
+    const glitch = el('btnConnect') ? el('btnConnect').querySelector('.cybr-btn__glitch') : null;
+    if(glitch) glitch.textContent = state.service.connected ? 'Disconnect' : 'Connect';
+  }
+
+  function applyServiceState(next){
+    state.service = { ...state.service, ...next };
+    if(next.controllerUrl && !state.host){
+      state.host = next.controllerUrl;
+      const hostInput = el('setHost');
+      if(hostInput) hostInput.value = state.host;
+    }
+    const stSync = el('stSync');
+    if(stSync) stSync.textContent = new Date().toLocaleString();
+    rerender();
+  }
+
+  function bindButton(id, handler, requirements){
+    const btn = el(id);
+    if(!btn) return;
+    const requiredMethods = requirements || [];
+    const missing = requiredMethods.filter(m => !bridgeMethods[m]);
+    if(missing.length > 0){
+      btn.disabled = true;
+      btn.title = `Missing bridge methods: ${missing.join(', ')}`;
+      return;
+    }
+    btn.addEventListener('click', handler);
   }
 
   // Topbar
-  el('btnConnect').addEventListener('click', ()=>{
-    state.connected = !state.connected;
-    state.host = state.connected ? (state.host || 'http://192.168.1.12:8080') : state.host;
-    el('stSync').textContent = new Date().toLocaleString();
-    log(state.connected ? 'Connected (demo).' : 'Disconnected (demo).');
-    rerender();
-  });
+  bindButton('btnConnect', ()=>{
+    const controllerUrl = state.host || state.service.controllerUrl || '';
+    if(state.service.connected){
+      const res = callBridge('disconnectGateway', {});
+      log(res.ok ? 'Disconnect requested.' : `Disconnect failed: ${res.code}`);
+    } else {
+      if(!controllerUrl){
+        showBanner('Set Controller URL in Settings before connecting.');
+        return;
+      }
+      const res = callBridge('connectGateway', { controllerUrl });
+      log(res.ok ? 'Connect requested.' : `Connect failed: ${res.code}`);
+    }
+  }, ['connectGateway', 'disconnectGateway']);
 
-  el('btnRefresh').addEventListener('click', ()=>{
-    el('stSync').textContent = new Date().toLocaleString();
-    log('Refresh requested.');
-    rerender();
-  });
+  bindButton('btnRefresh', ()=>{
+    const status = callBridge('requestStatus', {});
+    if(status.ok && status.data && status.data.state){
+      applyServiceState(status.data.state);
+      el('stSync').textContent = new Date().toLocaleString();
+      log('Status refreshed.');
+    } else {
+      log(`Status refresh failed: ${status.code || 'UNKNOWN'}`);
+    }
+    const logsRes = callBridge('getLastLogs', {});
+    if(logsRes.ok && logsRes.data && typeof logsRes.data.lastLogs === 'string'){
+      const ls = el('logStream');
+      if(ls) ls.textContent = logsRes.data.lastLogs || '(no events)';
+    }
+  }, ['requestStatus', 'getLastLogs']);
 
-  el('btnPanic').addEventListener('click', ()=>{
-    log('PANIC: stop all running sessions + disconnect gateways (demo).');
-    state.tasks.forEach(t=>t.state='canceled');
-    state.gateways.forEach(g=>{g.status='down'; g.sessions=0;});
-    rerender();
-  });
+  bindButton('btnPanic', ()=>{
+    showBanner('PANIC is not implemented on this companion yet.');
+  }, []);
 
   // Overview quick commands
-  el('btnStatus').addEventListener('click', ()=> log('Slash command: /status'));
-  el('btnConfigCmd').addEventListener('click', ()=> { log('Slash command: /config'); window.__ocui.showView('config'); });
-  el('btnDebugCmd').addEventListener('click', ()=> { log('Slash command: /debug'); window.__ocui.showView('debug'); });
+  bindButton('btnStatus', ()=> showBanner('Action /status is not implemented on this companion.'), []);
+  bindButton('btnConfigCmd', ()=> { showBanner('Action /config is not implemented on this companion.'); window.__ocui.showView('config'); }, []);
+  bindButton('btnDebugCmd', ()=> { showBanner('Action /debug is not implemented on this companion.'); window.__ocui.showView('debug'); }, []);
+
+  bindButton('btnCamsnap', ()=>{
+    const res = callBridge('triggerCamsnap', { quality: 85, maxBytes: 600000 });
+    log(res.ok ? 'Camsnap requested.' : `Camsnap failed: ${res.code}`);
+  }, ['triggerCamsnap']);
 
   // Chat
-  el('btnMsgSend').addEventListener('click', ()=>{
+  bindButton('btnMsgSend', ()=>{
     const gw = el('msgGateway').value;
     const ch = el('msgChannel').value.trim();
     const body = el('msgBody').value.trim();
-    if(!ch || !body){ log('Message rejected: missing channel/body.'); return; }
+    if(!ch || !body){ showBanner('Message rejected: missing channel/body.'); return; }
+    showBanner('Message send not implemented on this companion.');
     const line = `SEND: ${gw}:${ch} -> ${body.slice(0,140)}${body.length>140?'…':''}`;
     log(line);
     const stream = el('chatStream');
@@ -1348,10 +1488,10 @@ input, .mono{
       stream.textContent = (prev + line).slice(-6000);
     }
     el('msgBody').value = '';
-  });
+  }, []);
 
   // Sessions create
-  el('btnCreateTask').addEventListener('click', ()=>{
+  bindButton('btnCreateTask', ()=>{
     const t = {
       id: 'S-' + Math.floor(Math.random()*9000+1000),
       type: el('taskType').value.trim() || 'session',
@@ -1359,44 +1499,53 @@ input, .mono{
       state: 'queued'
     };
     state.tasks.unshift(t);
+    showBanner('Task creation is not implemented on this companion.');
     log(`Enqueued session ${t.id} (${t.type})`);
     renderTasks();
-  });
+  }, []);
+
+  bindButton('btnAddAgent', ()=> showBanner('Add instance is not implemented on this companion.'), []);
+  bindButton('btnAgentActivate', ()=> showBanner('Activate instance is not implemented on this companion.'), []);
+  bindButton('btnAgentStop', ()=> showBanner('Stop instance is not implemented on this companion.'), []);
 
   // Skills / Modes
-  el('btnSkillRefresh').addEventListener('click', ()=>{
-    el('skillsOut').textContent = `- scan_network\n- onvif_discovery\n- rtsp_probe\n(wire backend)`;
-    log('Skills refreshed (demo).');
-  });
-  el('btnSkillInvoke').addEventListener('click', ()=>{
-    log('Invoke skill (demo).');
-  });
+  bindButton('btnSkillRefresh', ()=>{
+    showBanner('Skill refresh is not implemented on this companion.');
+    el('skillsOut').textContent = `(no backend connected)`;
+    log('Skills refresh requested.');
+  }, []);
+  bindButton('btnSkillInvoke', ()=> showBanner('Skill invoke is not implemented on this companion.'), []);
 
-  el('btnModeSafe').addEventListener('click', ()=>{
+  bindButton('btnModeSafe', ()=>{
     state.mode = 'safe';
-    log('Mode set: safe (demo).');
+    showBanner('Mode switching is not implemented on this companion.');
+    log('Mode set: safe.');
     rerender();
-  });
-  el('btnModePower').addEventListener('click', ()=>{
+  }, []);
+  bindButton('btnModePower', ()=>{
     state.mode = 'power';
-    log('Mode set: power (demo).');
+    showBanner('Mode switching is not implemented on this companion.');
+    log('Mode set: power.');
     rerender();
-  });
+  }, []);
 
   // Config / Debug views
-  el('btnConfigFetch').addEventListener('click', ()=>{
-    log('FETCH: /config (demo)');
-    el('configOut').textContent = JSON.stringify({ host: state.host || null, profile: state.profile, workspace: state.workspace }, null, 2);
-  });
+  bindButton('btnConfigFetch', ()=>{
+    showBanner('Config fetch is not implemented on this companion.');
+    log('FETCH: /config requested.');
+    el('configOut').textContent = JSON.stringify({ controllerUrl: state.host || null }, null, 2);
+  }, []);
 
-  el('btnDebugFetch').addEventListener('click', ()=>{
-    log('FETCH: /debug (demo)');
-    el('debugOut').textContent = '(demo) debug endpoint response would render here.';
-  });
-  el('btnDebugDump').addEventListener('click', ()=>{
-    log('Dumping local UI state (demo).');
+  bindButton('btnDebugFetch', ()=>{
+    showBanner('Debug fetch is not implemented on this companion.');
+    log('FETCH: /debug requested.');
+    el('debugOut').textContent = '(no backend connected)';
+  }, []);
+  bindButton('btnDebugDump', ()=>{
+    showBanner('Debug dump is not implemented on this companion.');
+    log('Dumping local UI state.');
     el('debugOut').textContent = JSON.stringify(state, null, 2).slice(0, 9000);
-  });
+  }, []);
 
   // Settings modal
   const modals = {
@@ -1423,20 +1572,22 @@ input, .mono{
   el('btnSaveSettings').addEventListener('click', ()=>{
     state.host = el('setHost').value.trim();
     state.profile = el('setProfile').value.trim() || 'default';
+    state.service.controllerUrl = state.host || state.service.controllerUrl;
     log(`Settings saved: host=${state.host||'(none)'} profile=${state.profile}`);
     rerender();
     window.__ocui.closeModal('settings');
   });
 
-  el('btnCmdRun').addEventListener('click', ()=>{
+  bindButton('btnCmdRun', ()=>{
     const cmd = el('cmdText').value.trim();
     if(!cmd){ el('cmdOut').textContent='Enter a command.'; return; }
+    showBanner('Command execution is not implemented on this companion.');
     log(`RUN: ${cmd}`);
-    el('cmdOut').textContent = `(demo) executed: ${cmd}`;
-  });
+    el('cmdOut').textContent = `(not implemented) ${cmd}`;
+  }, []);
 
   // Cron clear
-  el('btnClearLogs').addEventListener('click', ()=>{
+  bindButton('btnClearLogs', ()=>{
     state.logs = [];
     el('logStream').textContent = '(no events)';
     el('consoleOut').textContent = 'Awaiting connection.';
@@ -1445,7 +1596,7 @@ input, .mono{
     el('debugConsole').textContent = '(idle)';
     el('modeConsole').textContent = '(idle)';
     el('skillsConsole').textContent = '(idle)';
-  });
+  }, []);
 
   // Table action wiring (instances/channels/sessions)
   document.body.addEventListener('click', (e)=>{
@@ -1455,27 +1606,54 @@ input, .mono{
     if(act === 'selectAgent'){
       const i = Number(btn.getAttribute('data-i'));
       state.agent = state.agents[i] || null;
+      showBanner('Instance selection is not implemented on this companion.');
       log(`Selected instance: ${state.agent ? state.agent.name : 'none'}`);
       rerender();
     } else if(act === 'gwRestart'){
       const key = btn.getAttribute('data-key');
       const gw = state.gateways.find(x=>x.key===key);
       if(gw){ gw.status='up'; gw.sessions=Math.floor(Math.random()*4); }
+      showBanner('Gateway restart is not implemented on this companion.');
       log(`Channel restart: ${key}`);
       rerender();
     } else if(act === 'gwPing'){
       const key = btn.getAttribute('data-key');
+      showBanner('Gateway ping is not implemented on this companion.');
       log(`Channel ping: ${key}`);
     } else if(act === 'taskCancel'){
       const i = Number(btn.getAttribute('data-i'));
       if(state.tasks[i]) state.tasks[i].state='canceled';
+      showBanner('Task cancel is not implemented on this companion.');
       log(`Session canceled: ${state.tasks[i] ? state.tasks[i].id : '(missing)'}`);
       renderTasks();
     }
   });
 
+  window.onStateUpdate = (stateJson)=>{
+    try {
+      const parsed = JSON.parse(stateJson);
+      applyServiceState(parsed);
+    } catch(err){
+      showBanner('Failed to parse service state update.');
+    }
+  };
+
+  if(!bridge){
+    showBanner('Android bridge not available. Open this dashboard inside the companion app.');
+  } else {
+    const initial = callBridge('requestStatus', {});
+    if(initial.ok && initial.data && initial.data.state){
+      applyServiceState(initial.data.state);
+    }
+    const logsRes = callBridge('getLastLogs', {});
+    if(logsRes.ok && logsRes.data && typeof logsRes.data.lastLogs === 'string'){
+      const ls = el('logStream');
+      if(ls) ls.textContent = logsRes.data.lastLogs || '(no events)';
+    }
+  }
+
   rerender();
-  log('UI booted (demo).');
+  log('UI booted.');
 })();
 </script>
 </body>
