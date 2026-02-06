@@ -50,11 +50,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     // JS bridge: must forward to the ForegroundService.
-    web.addJavascriptInterface(OpenClawBridge(this, web), "OpenClawBridge")
+    val bridge = OpenClawBridge(this, web)
+    web.addJavascriptInterface(bridge, "OpenClawBridge")
+    OpenClawForegroundService.attachBridge(bridge)
 
     val assetUrl = "file:///android_asset/openclaw_dash.html"
     web.loadUrl(assetUrl)
 
     setContentView(web)
+  }
+
+  override fun onDestroy() {
+    OpenClawForegroundService.attachBridge(null)
+    super.onDestroy()
   }
 }

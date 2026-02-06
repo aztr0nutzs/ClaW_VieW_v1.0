@@ -35,6 +35,15 @@ class OpenClawBridge(
   @JavascriptInterface
   fun triggerCamsnap(argsJson: String): String {
     Log.i("OPENCLAW_UI", "UI_EVENT triggerCamsnap args=$argsJson")
+    val capability = CapabilityRegistry.get("camsnap")
+      ?: return envelope(false, "CAPABILITY_UNKNOWN", "Capability not supported: camsnap")
+    val missingPermissions = CapabilityRegistry.missingPermissions(context, capability)
+    if (missingPermissions.isNotEmpty()) {
+      val data = JSONObject()
+        .put("capability", capability.name)
+        .put("missingPermissions", missingPermissions)
+      return envelope(false, "PERMISSION_MISSING", "Missing required permissions", data)
+    }
     val args = runCatching { JSONObject(argsJson) }.getOrNull()
     val quality = args?.optInt("quality", 85) ?: 85
     val maxBytes = args?.optInt("maxBytes", 600000) ?: 600000
