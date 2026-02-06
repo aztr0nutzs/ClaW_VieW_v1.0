@@ -305,7 +305,7 @@ class OpenClawForegroundService : LifecycleService() {
           .setJpegQuality(quality.coerceIn(1, 100))
           .build()
         return try {
-          provider.unbindAll()
+          imageCapture?.let { provider.unbind(it) }
           provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, capture)
           imageCapture = capture
           imageCaptureQuality = quality
