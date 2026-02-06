@@ -129,6 +129,8 @@
     updateControllerInput(state.controllerUrl);
     if (state.lastCapabilityResult) {
       document.getElementById('lastResult').textContent = JSON.stringify(state.lastCapabilityResult, null, 2);
+    } else {
+      document.getElementById('lastResult').textContent = '';
     }
     stateError = state.lastError ? formatError(state.lastError, null, null) : null;
     renderError();
