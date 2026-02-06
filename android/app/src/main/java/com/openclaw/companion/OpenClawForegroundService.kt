@@ -160,7 +160,7 @@ class OpenClawForegroundService : Service() {
   }
 
   private fun capabilityManifest(): JSONArray {
-    return CapabilityRegistry.capabilityNames()
+    return CapabilityRegistry.manifest()
   }
 
   private fun handleCapabilityRequest(requestId: String?, capability: String, args: org.json.JSONObject) {
