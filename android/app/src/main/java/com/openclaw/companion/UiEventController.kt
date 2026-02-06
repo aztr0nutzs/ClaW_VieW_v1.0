@@ -13,25 +13,25 @@ object UiEventController {
         .withState(OpenClawForegroundService.getCachedState())
         .toJsonString()
     }
-    val ok = OpenClawForegroundService.enqueue(context, UiCommand.Connect(trimmed))
-    Log.i(LOG_TAG, "UI_RESULT connectGateway ok=$ok code=${if (ok) "OK" else "SERVICE_NOT_RUNNING"}")
-    return UiResponse(ok, if (ok) "OK" else "SERVICE_NOT_RUNNING", if (ok) "Connect queued" else "Service not running")
+    OpenClawForegroundService.enqueue(context, UiCommand.Connect(trimmed))
+    Log.i(LOG_TAG, "UI_RESULT connectGateway ok=true code=OK")
+    return UiResponse(true, "OK", "Connect queued")
       .withState(OpenClawForegroundService.getCachedState())
       .toJsonString()
   }
 
   fun disconnectGateway(context: Context): String {
-    val ok = OpenClawForegroundService.enqueue(context, UiCommand.Disconnect)
-    Log.i(LOG_TAG, "UI_RESULT disconnectGateway ok=$ok code=${if (ok) "OK" else "SERVICE_NOT_RUNNING"}")
-    return UiResponse(ok, if (ok) "OK" else "SERVICE_NOT_RUNNING", if (ok) "Disconnect queued" else "Service not running")
+    OpenClawForegroundService.enqueue(context, UiCommand.Disconnect)
+    Log.i(LOG_TAG, "UI_RESULT disconnectGateway ok=true code=OK")
+    return UiResponse(true, "OK", "Disconnect queued")
       .withState(OpenClawForegroundService.getCachedState())
       .toJsonString()
   }
 
   fun triggerCamsnap(context: Context, quality: Int, maxBytes: Int): String {
-    val ok = OpenClawForegroundService.enqueue(context, UiCommand.Camsnap(quality, maxBytes))
-    Log.i(LOG_TAG, "UI_RESULT triggerCamsnap ok=$ok code=${if (ok) "QUEUED" else "SERVICE_NOT_RUNNING"}")
-    return UiResponse(ok, if (ok) "QUEUED" else "SERVICE_NOT_RUNNING", if (ok) "Camsnap queued" else "Service not running")
+    OpenClawForegroundService.enqueue(context, UiCommand.Camsnap(quality, maxBytes))
+    Log.i(LOG_TAG, "UI_RESULT triggerCamsnap ok=true code=QUEUED")
+    return UiResponse(true, "QUEUED", "Camsnap queued")
       .withState(OpenClawForegroundService.getCachedState())
       .toJsonString()
   }
