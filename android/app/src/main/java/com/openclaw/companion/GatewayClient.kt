@@ -287,13 +287,13 @@ class GatewayClient(
         if (currentSocket == null) {
           return@scheduleAtFixedRate
         }
-        val now = System.currentTimeMillis()
-        if (now - lastActivity > HEARTBEAT_TIMEOUT_MS) {
-          onLog("HEARTBEAT_TIMEOUT lastActivityMs=${now - lastActivity}")
+        val now = java.time.Instant.now()
+        if (now.toEpochMilli() - lastActivity > HEARTBEAT_TIMEOUT_MS) {
+          onLog("HEARTBEAT_TIMEOUT lastActivityMs=${now.toEpochMilli() - lastActivity}")
           currentSocket.close(1001, "heartbeat_timeout")
           return@scheduleAtFixedRate
         }
-        val heartbeat = java.time.Instant.ofEpochMilli(now).toString()
+        val heartbeat = now.toString()
         val payload = JSONObject()
           .put("type", "heartbeat")
           .put("ts", heartbeat)
