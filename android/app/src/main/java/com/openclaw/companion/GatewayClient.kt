@@ -384,8 +384,21 @@ class GatewayClient(
       result.data?.let { errorJson.put("data", it) }
       payload.put("error", errorJson)
     }
-    onLog("TX ${payload}")
-    onProtocolLog("TX ${payload}")
+    // Log a compact summary to avoid huge log lines (e.g., when result.data contains jpegBase64).
+    val summaryBuilder = StringBuilder()
+      .append("TX capability_result")
+      .append(" requestId=").append(result.requestId)
+      .append(" capability=").append(result.capability)
+      .append(" ok=").append(result.ok)
+    val data = result.data
+    if (result.ok && data is JSONObject && data.has("jpegBase64")) {
+      val jpegBase64 = data.optString("jpegBase64", null)
+      if (jpegBase64 != null) {
+        summaryBuilder.append(" jpegBase64Length=").append(jpegBase64.length)
+      }
+    }
+    onLog(summaryBuilder.toString())
+    onProtocolLog(summaryBuilder.toString())
     return socketRef.send(payload.toString())
   }
 }
