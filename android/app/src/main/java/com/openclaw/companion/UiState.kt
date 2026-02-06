@@ -9,6 +9,7 @@ data class UiState(
   val lastHeartbeat: String? = null,
   val lastError: String? = null,
   val controllerUrl: String? = null,
+  val lastCapabilityResult: CapabilityResult? = null,
 ) {
   fun toJson(): JSONObject = JSONObject()
     .put("nodeId", nodeId)
@@ -17,4 +18,5 @@ data class UiState(
     .put("lastHeartbeat", lastHeartbeat)
     .put("lastError", lastError)
     .put("controllerUrl", controllerUrl)
+    .put("lastCapabilityResult", lastCapabilityResult?.toJson())
 }
