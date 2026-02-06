@@ -281,7 +281,9 @@ class GatewayClient(
       val session = msg.optString("sessionId", "")
       val accepted = ok && session.isNotBlank()
       if (accepted) {
-        sessionId = session
+        synchronized(lock) {
+          sessionId = session
+        }
       }
       val isCurrent = synchronized(lock) { webSocket == socket }
       if (!isCurrent) {
