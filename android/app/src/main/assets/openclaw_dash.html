@@ -127,6 +127,9 @@
     document.getElementById('pillHeartbeat').textContent = `HB: ${state.lastHeartbeat || '—'}`;
     document.getElementById('controllerUrl').textContent = state.controllerUrl || '—';
     updateControllerInput(state.controllerUrl);
+    if (state.lastCapabilityResult) {
+      document.getElementById('lastResult').textContent = JSON.stringify(state.lastCapabilityResult, null, 2);
+    }
     stateError = state.lastError ? formatError(state.lastError, null, null) : null;
     renderError();
     // Buttons are truthful: disable camsnap unless connected (and optionally registered)
@@ -188,12 +191,22 @@
         return 'Missing controller URL. Enter a ws:// URL before connecting.';
       case 'CONTROLLER_UNREACHABLE':
         return 'Controller unreachable. Check the URL, network, and gateway status.';
+      case 'REGISTER_ACK_FAILED':
+        return 'Controller rejected registration. Check controller logs for details.';
+      case 'PERMISSION_DENIED':
+        return `Permission denied: ${(data?.missingPermissions || []).join(', ') || 'camera'}`;
       case 'PERMISSION_MISSING':
         return `Permission missing: ${(data?.missingPermissions || []).join(', ') || 'camera'}`;
       case 'CAMERA_UNAVAILABLE':
         return 'Camera unavailable. Ensure the camera is not in use and the device has one.';
-      case 'CAMSNAP_NOT_IMPLEMENTED':
-        return 'Camsnap is not implemented yet on this build.';
+      case 'CAMERA_BIND_FAILED':
+        return 'Camera bind failed. Close other camera apps and retry.';
+      case 'IMAGE_TOO_LARGE':
+        return 'Captured image exceeds maxBytes. Reduce quality or maxBytes.';
+      case 'CAPTURE_FAILED':
+        return 'Capture failed. Check camera permissions and availability.';
+      case 'CAPTURE_READ_FAILED':
+        return 'Capture saved but could not be read.';
       default:
         return message || code || 'Unknown error';
     }

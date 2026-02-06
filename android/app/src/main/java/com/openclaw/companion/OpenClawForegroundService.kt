@@ -6,20 +6,20 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.hardware.camera2.CameraAccessException
-import android.hardware.camera2.CameraManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import org.json.JSONArray
 import java.lang.ref.WeakReference
+import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 class OpenClawForegroundService : Service() {
-  private var gatewayClient: GatewayClient? = null
+  private var openClawGateway: OpenClawGateway? = null
+  private var camsnapCapability: CamsnapCapability? = null
 
   override fun onCreate() {
     super.onCreate()
@@ -29,6 +29,8 @@ class OpenClawForegroundService : Service() {
     updateState { it.copy(nodeId = nodeId) }
     running.set(true)
     Log.i(LOG_TAG, "NODE_ID $nodeId")
+
+    camsnapCapability = CamsnapCapability(this)
 
     ensureChannel()
     startForeground(NOTIF_ID, buildNotif("OpenClaw Companion running"))
@@ -46,8 +48,10 @@ class OpenClawForegroundService : Service() {
     Log.i(LOG_TAG, "SERVICE_STOP")
     running.set(false)
     updateState { it.copy(connected = false, registered = false) }
-    gatewayClient?.shutdown()
-    gatewayClient = null
+    openClawGateway?.shutdown()
+    openClawGateway = null
+    camsnapCapability?.shutdown()
+    camsnapCapability = null
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
       stopForeground(STOP_FOREGROUND_REMOVE)
     } else {
@@ -69,32 +73,24 @@ class OpenClawForegroundService : Service() {
           if (controllerUrl.isNullOrBlank()) {
             Log.w(LOG_TAG, "SERVICE_ERROR missing controllerUrl")
             updateState { it.copy(lastError = "MISSING_CONTROLLER_URL") }
+            Log.i(LOG_TAG, "RESULT connectGateway ok=false code=MISSING_CONTROLLER_URL")
             continue
           }
           updateState { it.copy(controllerUrl = controllerUrl, lastError = null) }
-          ensureGatewayClient().connect(controllerUrl)
+          ensureGateway().connect(controllerUrl)
+          Log.i(LOG_TAG, "RESULT connectGateway ok=true code=OK")
         }
         is UiCommand.Disconnect -> {
           Log.i(LOG_TAG, "SERVICE_CALL disconnectGateway")
 
-          gatewayClient?.disconnect()
+          openClawGateway?.disconnect()
           updateState { it.copy(connected = false, registered = false, lastError = null) }
+          Log.i(LOG_TAG, "RESULT disconnectGateway ok=true code=OK")
         }
         is UiCommand.Camsnap -> {
           Log.i(LOG_TAG, "SERVICE_CALL triggerCamsnap quality=${cmd.quality} maxBytes=${cmd.maxBytes}")
-          val cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
-          val error = try {
-            val cameras = cameraManager.cameraIdList
-            if (cameras.isEmpty()) {
-              "CAMERA_UNAVAILABLE"
-            } else {
-              "CAMSNAP_NOT_IMPLEMENTED"
-            }
-          } catch (e: CameraAccessException) {
-            Log.w(LOG_TAG, "SERVICE_ERROR camera access failure", e)
-            "CAMERA_UNAVAILABLE"
-          }
-          updateState { it.copy(lastError = error) }
+          Log.i(LOG_TAG, "RESULT triggerCamsnap ok=true code=QUEUED")
+          executeCamsnap(requestId = null, quality = cmd.quality, maxBytes = cmd.maxBytes)
         }
       }
       Log.i(
@@ -104,9 +100,10 @@ class OpenClawForegroundService : Service() {
     }
   }
 
-  private fun ensureGatewayClient(): GatewayClient {
-    if (gatewayClient == null) {
-      gatewayClient = GatewayClient(
+  private fun ensureGateway(): OpenClawGateway {
+    if (openClawGateway == null) {
+      openClawGateway = OpenClawGateway(
+        context = this,
         onState = { connected, registered, lastError ->
           updateState { it.copy(connected = connected, registered = registered, lastError = lastError) }
         },
@@ -114,14 +111,22 @@ class OpenClawForegroundService : Service() {
           Log.i(GATEWAY_TAG, message)
           appendLog("$GATEWAY_TAG $message")
         },
+        onProtocolLog = { message ->
+          Log.i(PROTOCOL_TAG, message)
+          appendLog("$PROTOCOL_TAG $message")
+        },
         onHeartbeat = { heartbeat ->
           updateState { it.copy(lastHeartbeat = heartbeat) }
+        },
+        onCapabilityRequest = { requestId, capability, args ->
+          Log.i(PROTOCOL_TAG, "CAPABILITY_REQUEST capability=$capability requestId=$requestId args=$args")
+          handleCapabilityRequest(requestId, capability, args)
         },
         getNodeId = { stateRef.get().nodeId ?: "unknown" },
         getCapabilities = { capabilityManifest() },
       )
     }
-    return gatewayClient!!
+    return openClawGateway!!
   }
 
   private fun updateState(transform: (UiState) -> UiState) {
@@ -155,7 +160,82 @@ class OpenClawForegroundService : Service() {
   }
 
   private fun capabilityManifest(): JSONArray {
-    return CapabilityRegistry.manifest()
+    return CapabilityRegistry.capabilityNames()
+  }
+
+  private fun handleCapabilityRequest(requestId: String?, capability: String, args: org.json.JSONObject) {
+    when (capability) {
+      "camsnap" -> {
+        val quality = args.optInt("quality", 85)
+        val maxBytes = args.optInt("maxBytes", 600000)
+        executeCamsnap(requestId, quality, maxBytes)
+      }
+      else -> {
+        val result = CapabilityResult(
+          requestId = requestId,
+          capability = capability,
+          ok = false,
+          code = "CAPABILITY_UNKNOWN",
+          message = "Unknown capability: $capability",
+        )
+        val msg = "CAPABILITY_UNKNOWN capability=$capability requestId=$requestId"
+        Log.w(CAMSNAP_TAG, msg)
+        appendLog("$CAMSNAP_TAG $msg")
+        updateState { it.copy(lastCapabilityResult = result, lastError = result.code) }
+        openClawGateway?.sendCapabilityResult(result)
+      }
+    }
+  }
+
+  private fun executeCamsnap(requestId: String?, quality: Int, maxBytes: Int) {
+    val capability = CapabilityRegistry.get("camsnap")
+    if (capability == null) {
+      val result = CapabilityResult(requestId, "camsnap", false, "CAPABILITY_UNKNOWN", "Capability not supported: camsnap")
+      updateState { it.copy(lastCapabilityResult = result, lastError = result.code) }
+      openClawGateway?.sendCapabilityResult(result)
+      return
+    }
+    val missingPermissions = CapabilityRegistry.missingPermissions(this, capability)
+    if (missingPermissions.isNotEmpty()) {
+      val result = CapabilityResult(
+        requestId = requestId,
+        capability = "camsnap",
+        ok = false,
+        code = "PERMISSION_DENIED",
+        message = "Missing required permissions",
+        data = org.json.JSONObject().put("missingPermissions", missingPermissions),
+      )
+      val msg = "PERMISSION_DENIED missing=$missingPermissions"
+      Log.w(CAMSNAP_TAG, msg)
+      appendLog("$CAMSNAP_TAG $msg")
+      updateState { it.copy(lastCapabilityResult = result, lastError = result.code) }
+      openClawGateway?.sendCapabilityResult(result)
+      return
+    }
+    val camsnap = camsnapCapability ?: run {
+      val result = CapabilityResult(requestId, "camsnap", false, "CAMERA_UNAVAILABLE", "Camera unavailable")
+      updateState { it.copy(lastCapabilityResult = result, lastError = result.code) }
+      openClawGateway?.sendCapabilityResult(result)
+      return
+    }
+    camsnap.capture(quality, maxBytes) { rawResult ->
+      val finalResult = rawResult.copy(requestId = requestId)
+      if (finalResult.ok) {
+        val msg = "CAPTURE_OK bytes=${finalResult.data?.optInt(\"bytes\")}"
+        Log.i(CAMSNAP_TAG, msg)
+        appendLog("$CAMSNAP_TAG $msg")
+      } else {
+        val msg = "CAPTURE_FAIL code=${finalResult.code} message=${finalResult.message}"
+        Log.w(CAMSNAP_TAG, msg)
+        appendLog("$CAMSNAP_TAG $msg")
+      }
+      updateState { it.copy(lastCapabilityResult = finalResult, lastError = if (finalResult.ok) null else finalResult.code) }
+      val gateway = openClawGateway
+      if (gateway != null) {
+        val outbound = if (requestId != null) finalResult else finalResult.copy(requestId = UUID.randomUUID().toString())
+        gateway.sendCapabilityResult(outbound)
+      }
+    }
   }
 
   private fun logBatteryOptimizationStatus() {
@@ -200,6 +280,8 @@ class OpenClawForegroundService : Service() {
     private const val LOG_BUFFER_LIMIT = 4000
     private const val LOG_TAG = "OPENCLAW_SERVICE"
     private const val GATEWAY_TAG = "OPENCLAW_GATEWAY"
+    private const val PROTOCOL_TAG = "OPENCLAW_PROTOCOL"
+    private const val CAMSNAP_TAG = "OPENCLAW_CAMSNAP"
 
     private val queue = ConcurrentLinkedQueue<UiCommand>()
     private val stateRef = AtomicReference(UiState())

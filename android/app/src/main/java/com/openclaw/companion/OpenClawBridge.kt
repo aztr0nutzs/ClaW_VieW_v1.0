@@ -21,15 +21,13 @@ class OpenClawBridge(
     Log.i("OPENCLAW_UI", "UI_EVENT connectGateway args=$argsJson")
     val args = runCatching { JSONObject(argsJson) }.getOrNull()
     val controllerUrl = args?.optString("controllerUrl", null)
-    val ok = OpenClawForegroundService.enqueue(context, UiCommand.Connect(controllerUrl))
-    return envelope(ok, if (ok) "OK" else "SERVICE_NOT_RUNNING", if (ok) "Connect queued" else "Service not running")
+    return UiEventController.connectGateway(context, controllerUrl)
   }
 
   @JavascriptInterface
   fun disconnectGateway(argsJson: String): String {
     Log.i("OPENCLAW_UI", "UI_EVENT disconnectGateway args=$argsJson")
-    val ok = OpenClawForegroundService.enqueue(context, UiCommand.Disconnect)
-    return envelope(ok, if (ok) "OK" else "SERVICE_NOT_RUNNING", if (ok) "Disconnect queued" else "Service not running")
+    return UiEventController.disconnectGateway(context)
   }
 
   @JavascriptInterface
@@ -42,29 +40,24 @@ class OpenClawBridge(
       val data = JSONObject()
         .put("capability", capability.name)
         .put("missingPermissions", missingPermissions)
-      return envelope(false, "PERMISSION_MISSING", "Missing required permissions", data)
+      return envelope(false, "PERMISSION_DENIED", "Missing required permissions", data)
     }
     val args = runCatching { JSONObject(argsJson) }.getOrNull()
     val quality = args?.optInt("quality", 85) ?: 85
     val maxBytes = args?.optInt("maxBytes", 600000) ?: 600000
-    val ok = OpenClawForegroundService.enqueue(context, UiCommand.Camsnap(quality, maxBytes))
-    return envelope(ok, if (ok) "OK" else "SERVICE_NOT_RUNNING", if (ok) "Camsnap queued" else "Service not running")
+    return UiEventController.triggerCamsnap(context, quality, maxBytes)
   }
 
   @JavascriptInterface
   fun requestStatus(argsJson: String): String {
     Log.i("OPENCLAW_UI", "UI_EVENT requestStatus args=$argsJson")
-    val state = OpenClawForegroundService.getCachedState()
-    val data = JSONObject().put("state", state.toJson())
-    return envelope(true, "OK", "State", data)
+    return UiEventController.requestStatus()
   }
 
   @JavascriptInterface
   fun getLastLogs(argsJson: String): String {
     Log.i("OPENCLAW_UI", "UI_EVENT getLastLogs args=$argsJson")
-    val logs = OpenClawForegroundService.getLastLogs()
-    val data = JSONObject().put("lastLogs", logs)
-    return envelope(true, "OK", "Logs", data)
+    return UiEventController.getLastLogs()
   }
 
   /** Optional: service can call this to push state into JS. */
