@@ -27,9 +27,14 @@ import kotlin.math.min
 class GatewayClient(
   private val onState: (connected: Boolean, registered: Boolean, lastError: String?) -> Unit,
   private val onLog: (String) -> Unit,
+  private val onProtocolLog: (String) -> Unit = {},
   private val onHeartbeat: (String) -> Unit = {},
+  private val onCapabilityRequest: (requestId: String?, capability: String, args: JSONObject) -> Unit = { _, _, _ -> },
   private val getNodeId: () -> String,
   private val getCapabilities: () -> JSONArray = { JSONArray() },
+  private val getPlatform: () -> String = { "android" },
+  private val getAppVersion: () -> String? = { null },
+  private val getDeviceInfo: () -> JSONObject = { JSONObject() },
 ) {
   private val okHttp = OkHttpClient.Builder()
     .pingInterval(20, TimeUnit.SECONDS)
@@ -44,6 +49,7 @@ class GatewayClient(
   private val scheduledReconnects = mutableListOf<ScheduledFuture<*>>()
   private var heartbeatFuture: ScheduledFuture<*>? = null
   private var lastActivityAtMillis = 0L
+  private var sessionId: String? = null
 
   /**
    * Establish a WebSocket connection to the given URL. If a socket is already open it
@@ -56,6 +62,7 @@ class GatewayClient(
       // reset intent and lastUrl before connecting to avoid stale reconnect attempts
       intentionalDisconnect = false
       lastUrl = url
+      sessionId = null
       cancelScheduledReconnectsLocked()
       cancelHeartbeatLocked()
       socketToClose = socket
@@ -85,6 +92,7 @@ class GatewayClient(
       intentionalDisconnect = true
       lastUrl = null
       reconnectAttempts = 0
+      sessionId = null
       cancelScheduledReconnectsLocked()
       cancelHeartbeatLocked()
       socketToClose = socket
@@ -107,6 +115,7 @@ class GatewayClient(
       intentionalDisconnect = true
       lastUrl = null
       reconnectAttempts = 0
+      sessionId = null
       cancelScheduledReconnectsLocked()
       cancelHeartbeatLocked()
       socketToClose = socket
@@ -157,7 +166,7 @@ class GatewayClient(
         return
       }
       onLog("FAILURE ${t.message}")
-      onState(false, false, "WS_FAILURE")
+      onState(false, false, "CONTROLLER_UNREACHABLE")
       scheduleReconnect()
     }
 
@@ -181,11 +190,18 @@ class GatewayClient(
   }
 
   private fun sendRegistration(webSocket: WebSocket) {
+    val nodeId = getNodeId()
     val payload = JSONObject()
       .put("type", "register")
-      .put("nodeId", getNodeId())
+      .put("nodeId", nodeId)
+      .put("ts", System.currentTimeMillis())
+      .put("v", PROTOCOL_VERSION)
+      .put("platform", getPlatform())
+      .put("appVersion", getAppVersion())
       .put("capabilities", getCapabilities())
+      .put("device", getDeviceInfo())
     onLog("TX ${payload}")
+    onProtocolLog("TX ${payload}")
     webSocket.send(payload.toString())
   }
 
@@ -244,6 +260,7 @@ class GatewayClient(
    */
   internal fun handleIncomingMessage(text: String, webSocket: WebSocket) {
     onLog("RX $text")
+    onProtocolLog("RX $text")
     val msg = runCatching { JSONObject(text) }.getOrNull() ?: return
     val type = msg.optString("type", "")
     if (type == "heartbeat" || type == "heartbeat_ack") {
@@ -251,16 +268,29 @@ class GatewayClient(
       val heartbeat = if (ts.isNotBlank()) ts else java.time.Instant.now().toString()
       onHeartbeat(heartbeat)
     }
+    if (type == "capability_request") {
+      val requestId = msg.optString("requestId", null)
+      val capability = msg.optString("capability", "")
+      val args = msg.optJSONObject("args") ?: JSONObject()
+      if (capability.isNotBlank()) {
+        onCapabilityRequest(requestId, capability, args)
+      }
+    }
     if (type == "register_ack") {
       val ok = msg.optBoolean("ok", false)
+      val session = msg.optString("sessionId", "")
+      val accepted = ok && session.isNotBlank()
+      if (accepted) {
+        sessionId = session
+      }
       val isCurrent = synchronized(lock) { webSocket == socket }
       if (!isCurrent) {
         return
       }
       // connected is true if this webSocket is the active one and not null
       val connected = synchronized(lock) { socket == webSocket && socket != null }
-      onState(connected, ok, if (ok) null else "REGISTER_ACK_FAILED")
-      onLog("REGISTER_ACK ok=$ok")
+      onState(connected, accepted, if (accepted) null else "REGISTER_ACK_FAILED")
+      onLog("REGISTER_ACK ok=$accepted sessionId=${if (accepted) session else "missing"}")
     }
   }
 
@@ -296,8 +326,15 @@ class GatewayClient(
         val heartbeat = now.toString()
         val payload = JSONObject()
           .put("type", "heartbeat")
+          .put("nodeId", getNodeId())
           .put("ts", heartbeat)
+          .put("v", PROTOCOL_VERSION)
+        val session = synchronized(lock) { sessionId }
+        if (!session.isNullOrBlank()) {
+          payload.put("sessionId", session)
+        }
         onLog("TX ${payload}")
+        onProtocolLog("TX ${payload}")
         currentSocket.send(payload.toString())
         onHeartbeat(heartbeat)
       },
@@ -319,5 +356,32 @@ class GatewayClient(
   private companion object {
     private const val HEARTBEAT_INTERVAL_SEC = 15
     private const val HEARTBEAT_TIMEOUT_MS = 45_000
+    private const val PROTOCOL_VERSION = 1
+  }
+
+  fun sendCapabilityResult(result: CapabilityResult): Boolean {
+    val socketRef: WebSocket?
+    synchronized(lock) {
+      socketRef = socket
+    }
+    if (socketRef == null) {
+      return false
+    }
+    val payload = JSONObject()
+      .put("type", "capability_result")
+      .put("nodeId", getNodeId())
+      .put("ts", System.currentTimeMillis())
+      .put("v", PROTOCOL_VERSION)
+      .put("requestId", result.requestId)
+      .put("capability", result.capability)
+      .put("ok", result.ok)
+    if (result.ok) {
+      if (result.data != null) payload.put("result", result.data)
+    } else {
+      payload.put("error", JSONObject().put("code", result.code).put("message", result.message))
+    }
+    onLog("TX ${payload}")
+    onProtocolLog("TX ${payload}")
+    return socketRef.send(payload.toString())
   }
 }

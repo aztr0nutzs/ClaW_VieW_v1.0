@@ -34,6 +34,12 @@ object CapabilityRegistry {
     return array
   }
 
+  fun capabilityNames(): JSONArray {
+    val array = JSONArray()
+    capabilities.keys.sorted().forEach { name -> array.put(name) }
+    return array
+  }
+
   fun get(name: String): CapabilityDefinition? = capabilities[name]
 
   fun missingPermissions(context: Context, capability: CapabilityDefinition): List<String> {
