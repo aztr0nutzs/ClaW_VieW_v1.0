@@ -378,7 +378,9 @@ class GatewayClient(
     if (result.ok) {
       if (result.data != null) payload.put("result", result.data)
     } else {
-      payload.put("error", JSONObject().put("code", result.code).put("message", result.message))
+      val errorJson = JSONObject().put("code", result.code).put("message", result.message)
+      result.data?.let { errorJson.put("data", it) }
+      payload.put("error", errorJson)
     }
     onLog("TX ${payload}")
     onProtocolLog("TX ${payload}")
