@@ -6,6 +6,8 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.hardware.camera2.CameraAccessException
+import android.hardware.camera2.CameraManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -80,7 +82,19 @@ class OpenClawForegroundService : Service() {
         }
         is UiCommand.Camsnap -> {
           Log.i(LOG_TAG, "SERVICE_CALL triggerCamsnap quality=${cmd.quality} maxBytes=${cmd.maxBytes}")
-          updateState { it.copy(lastError = "CAMSNAP_NOT_IMPLEMENTED") }
+          val cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+          val error = try {
+            val cameras = cameraManager.cameraIdList
+            if (cameras.isEmpty()) {
+              "CAMERA_UNAVAILABLE"
+            } else {
+              "CAMSNAP_NOT_IMPLEMENTED"
+            }
+          } catch (e: CameraAccessException) {
+            Log.w(LOG_TAG, "SERVICE_ERROR camera access failure", e)
+            "CAMERA_UNAVAILABLE"
+          }
+          updateState { it.copy(lastError = error) }
         }
       }
       Log.i(

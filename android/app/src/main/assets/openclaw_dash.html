@@ -13,6 +13,8 @@
     main { padding:16px; display:grid; gap:12px; }
     .card { border:1px solid #222; border-radius:14px; padding:14px; background:#0a0a0a; }
     .row { display:flex; gap:10px; flex-wrap:wrap; }
+    .field { display:flex; flex-direction:column; gap:6px; }
+    input[type="text"] { background:#080808; color:#fff; border:1px solid #333; border-radius:10px; padding:10px 12px; width:100%; max-width:520px; }
     button { background:#111; color:#fff; border:1px solid #333; border-radius:12px; padding:12px 14px; cursor:pointer; }
     button:disabled { opacity:.45; cursor:not-allowed; }
     #errorBanner { display:none; border:1px solid #ff2b5c; color:#ff7a96; background:#19040a; padding:10px 12px; border-radius:12px; }
@@ -33,12 +35,16 @@
 
     <div class="card">
       <h3>Gateway</h3>
+      <div class="field">
+        <label for="controllerUrlInput"><small>Controller URL</small></label>
+        <input id="controllerUrlInput" type="text" inputmode="url" placeholder="ws://controller:8787/ws" />
+      </div>
       <div class="row">
         <button id="btnConnect" onclick="connectGateway()">Connect</button>
         <button id="btnDisconnect" onclick="disconnectGateway()">Disconnect</button>
         <button id="btnStatus" onclick="requestStatus()">Refresh Status</button>
       </div>
-      <p><small>Controller URL: <code id="controllerUrl">—</code></small></p>
+      <p><small>Active URL: <code id="controllerUrl">—</code></small></p>
     </div>
 
     <div class="card">
@@ -63,7 +69,13 @@
 <script>
   // ========= REQUIRED PUBLIC JS API (names exact) =========
   function connectGateway() {
-    return callBridge('connectGateway', {});
+    const controllerUrl = readControllerUrl();
+    if (!controllerUrl) {
+      showError(formatError('MISSING_CONTROLLER_URL'));
+      return;
+    }
+    persistControllerUrl(controllerUrl);
+    return callBridge('connectGateway', { controllerUrl });
   }
   function disconnectGateway() {
     return callBridge('disconnectGateway', {});
@@ -87,9 +99,9 @@
       const raw = window.OpenClawBridge[method](JSON.stringify(args || {}));
       const resp = safeJson(raw);
       if (!resp || resp.ok !== true) {
-        showError(resp?.message || `Call failed: ${method}`);
+        showError(formatError(resp?.code, resp?.message, resp?.data));
       } else {
-        hideError();
+        clearUiError();
       }
       // Update UI state if included
       if (resp && resp.data && resp.data.state) applyState(resp.data.state);
@@ -114,6 +126,9 @@
     setPill('pillRegistered', registered, registered ? 'REGISTERED' : 'UNREGISTERED');
     document.getElementById('pillHeartbeat').textContent = `HB: ${state.lastHeartbeat || '—'}`;
     document.getElementById('controllerUrl').textContent = state.controllerUrl || '—';
+    updateControllerInput(state.controllerUrl);
+    stateError = state.lastError ? formatError(state.lastError, null, null) : null;
+    renderError();
     // Buttons are truthful: disable camsnap unless connected (and optionally registered)
     document.getElementById('btnCamsnap').disabled = !connected;
     document.getElementById('btnDisconnect').disabled = !connected;
@@ -134,17 +149,30 @@
     });
   }
 
+  let lastUiError = null;
+  let stateError = null;
   function showError(msg) {
-    const b = document.getElementById('errorBanner');
-    b.style.display = 'block';
-    b.textContent = msg;
+    lastUiError = msg;
+    renderError();
   }
-  function hideError() {
+  function renderError() {
     const b = document.getElementById('errorBanner');
-    b.style.display = 'none';
-    b.textContent = '';
+    const msg = stateError || lastUiError;
+    if (msg) {
+      b.style.display = 'block';
+      b.textContent = msg;
+    } else {
+      b.style.display = 'none';
+      b.textContent = '';
+    }
   }
-  function clearError(){ hideError(); }
+  function clearError(){
+    clearUiError();
+  }
+  function clearUiError() {
+    lastUiError = null;
+    renderError();
+  }
 
   function copyLastLogs() {
     const txt = document.getElementById('lastLogs').textContent || '';
@@ -153,7 +181,49 @@
 
   function safeJson(x){ try { return JSON.parse(x); } catch(_) { return null; } }
 
+  function formatError(code, message, data) {
+    if (!code && message) return message;
+    switch (code) {
+      case 'MISSING_CONTROLLER_URL':
+        return 'Missing controller URL. Enter a ws:// URL before connecting.';
+      case 'CONTROLLER_UNREACHABLE':
+        return 'Controller unreachable. Check the URL, network, and gateway status.';
+      case 'PERMISSION_MISSING':
+        return `Permission missing: ${(data?.missingPermissions || []).join(', ') || 'camera'}`;
+      case 'CAMERA_UNAVAILABLE':
+        return 'Camera unavailable. Ensure the camera is not in use and the device has one.';
+      case 'CAMSNAP_NOT_IMPLEMENTED':
+        return 'Camsnap is not implemented yet on this build.';
+      default:
+        return message || code || 'Unknown error';
+    }
+  }
+
+  function readControllerUrl() {
+    const input = document.getElementById('controllerUrlInput');
+    const value = input?.value?.trim();
+    if (value) return value;
+    return localStorage.getItem('openclaw.controllerUrl') || '';
+  }
+
+  function updateControllerInput(url) {
+    if (!url) return;
+    const input = document.getElementById('controllerUrlInput');
+    if (input && input.value.trim() !== url) {
+      input.value = url;
+      persistControllerUrl(url);
+    }
+  }
+
+  function persistControllerUrl(url) {
+    localStorage.setItem('openclaw.controllerUrl', url);
+  }
+
   // Boot: request initial state
+  const storedUrl = localStorage.getItem('openclaw.controllerUrl');
+  if (storedUrl) {
+    document.getElementById('controllerUrlInput').value = storedUrl;
+  }
   requestStatus();
 </script>
 </body>

@@ -144,7 +144,7 @@ class GatewayClient(
         return
       }
       onLog("FAILURE ${t.message}")
-      onState(false, false, "WS_FAILURE")
+      onState(false, false, "CONTROLLER_UNREACHABLE")
       scheduleReconnect()
     }
 
