@@ -318,8 +318,27 @@ class OpenClawForegroundService : LifecycleService() {
     }
   }
 
-  private data class TunedImage(val bytes: ByteArray, val width: Int, val height: Int, val quality: Int)
+  private data class TunedImage(val bytes: ByteArray, val width: Int, val height: Int, val quality: Int) {
+    override fun equals(other: Any?): Boolean {
+      if (this === other) return true
+      if (other !is TunedImage) return false
 
+      if (!bytes.contentEquals(other.bytes)) return false
+      if (width != other.width) return false
+      if (height != other.height) return false
+      if (quality != other.quality) return false
+
+      return true
+    }
+
+    override fun hashCode(): Int {
+      var result = bytes.contentHashCode()
+      result = 31 * result + width
+      result = 31 * result + height
+      result = 31 * result + quality
+      return result
+    }
+  }
   private fun tuneImageSize(rawBytes: ByteArray, baseQuality: Int, maxBytes: Int): TunedImage {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, bounds)
