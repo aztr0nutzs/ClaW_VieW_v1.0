@@ -34,7 +34,7 @@ object CapabilityRegistry {
     return array
   }
 
-  fun get(name: String): CapabilityDefinition? = capabilities.firstOrNull { it.name == name }
+  fun get(name: String): CapabilityDefinition? = capabilities[name]
 
   fun missingPermissions(context: Context, capability: CapabilityDefinition): List<String> {
     return capability.requiredPermissions.filter { permission ->
