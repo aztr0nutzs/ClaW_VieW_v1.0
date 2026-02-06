@@ -27,6 +27,7 @@ import kotlin.math.min
 class GatewayClient(
   private val onState: (connected: Boolean, registered: Boolean, lastError: String?) -> Unit,
   private val onLog: (String) -> Unit,
+  private val onHeartbeat: (String) -> Unit = {},
   private val getNodeId: () -> String,
   private val getCapabilities: () -> JSONArray = { JSONArray() },
 ) {
@@ -41,6 +42,8 @@ class GatewayClient(
   private var lastUrl: String? = null
   private var intentionalDisconnect = false
   private val scheduledReconnects = mutableListOf<ScheduledFuture<*>>()
+  private var heartbeatFuture: ScheduledFuture<*>? = null
+  private var lastActivityAtMillis = 0L
 
   /**
    * Establish a WebSocket connection to the given URL. If a socket is already open it
@@ -54,6 +57,7 @@ class GatewayClient(
       intentionalDisconnect = false
       lastUrl = url
       cancelScheduledReconnectsLocked()
+      cancelHeartbeatLocked()
       socketToClose = socket
       socket = null
     }
@@ -82,6 +86,7 @@ class GatewayClient(
       lastUrl = null
       reconnectAttempts = 0
       cancelScheduledReconnectsLocked()
+      cancelHeartbeatLocked()
       socketToClose = socket
       socket = null
     }
@@ -103,6 +108,7 @@ class GatewayClient(
       lastUrl = null
       reconnectAttempts = 0
       cancelScheduledReconnectsLocked()
+      cancelHeartbeatLocked()
       socketToClose = socket
       socket = null
     }
@@ -123,12 +129,17 @@ class GatewayClient(
       }
       synchronized(lock) {
         reconnectAttempts = 0
+        lastActivityAtMillis = System.currentTimeMillis()
       }
       onState(true, false, null)
       sendRegistration(webSocket)
+      startHeartbeat()
     }
 
     override fun onMessage(webSocket: WebSocket, text: String) {
+      synchronized(lock) {
+        lastActivityAtMillis = System.currentTimeMillis()
+      }
       handleIncomingMessage(text, webSocket)
     }
 
@@ -138,6 +149,7 @@ class GatewayClient(
           false
         } else {
           socket = null
+          cancelHeartbeatLocked()
           true
         }
       }
@@ -155,6 +167,7 @@ class GatewayClient(
           false
         } else {
           socket = null
+          cancelHeartbeatLocked()
           true
         }
       }
@@ -233,6 +246,11 @@ class GatewayClient(
     onLog("RX $text")
     val msg = runCatching { JSONObject(text) }.getOrNull() ?: return
     val type = msg.optString("type", "")
+    if (type == "heartbeat" || type == "heartbeat_ack") {
+      val ts = msg.optString("ts", "")
+      val heartbeat = if (ts.isNotBlank()) ts else java.time.Instant.now().toString()
+      onHeartbeat(heartbeat)
+    }
     if (type == "register_ack") {
       val ok = msg.optBoolean("ok", false)
       val isCurrent = synchronized(lock) { webSocket == socket }
@@ -253,6 +271,53 @@ class GatewayClient(
   internal fun setSocketForTest(webSocket: WebSocket?) {
     synchronized(lock) {
       socket = webSocket
+      lastActivityAtMillis = System.currentTimeMillis()
     }
+  }
+
+  private fun startHeartbeat() {
+    val future = scheduler.scheduleAtFixedRate(
+      {
+        val currentSocket: WebSocket?
+        val lastActivity: Long
+        synchronized(lock) {
+          currentSocket = socket
+          lastActivity = lastActivityAtMillis
+        }
+        if (currentSocket == null) {
+          return@scheduleAtFixedRate
+        }
+        val now = System.currentTimeMillis()
+        if (now - lastActivity > HEARTBEAT_TIMEOUT_MS) {
+          onLog("HEARTBEAT_TIMEOUT lastActivityMs=${now - lastActivity}")
+          currentSocket.close(1001, "heartbeat_timeout")
+          return@scheduleAtFixedRate
+        }
+        val heartbeat = java.time.Instant.ofEpochMilli(now).toString()
+        val payload = JSONObject()
+          .put("type", "heartbeat")
+          .put("ts", heartbeat)
+        onLog("TX ${payload}")
+        currentSocket.send(payload.toString())
+        onHeartbeat(heartbeat)
+      },
+      HEARTBEAT_INTERVAL_SEC.toLong(),
+      HEARTBEAT_INTERVAL_SEC.toLong(),
+      TimeUnit.SECONDS,
+    )
+    synchronized(lock) {
+      cancelHeartbeatLocked()
+      heartbeatFuture = future
+    }
+  }
+
+  private fun cancelHeartbeatLocked() {
+    heartbeatFuture?.cancel(false)
+    heartbeatFuture = null
+  }
+
+  private companion object {
+    private const val HEARTBEAT_INTERVAL_SEC = 15
+    private const val HEARTBEAT_TIMEOUT_MS = 45_000
   }
 }

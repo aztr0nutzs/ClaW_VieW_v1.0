@@ -11,6 +11,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import org.json.JSONArray
+import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -99,6 +100,9 @@ class OpenClawForegroundService : Service() {
           Log.i(GATEWAY_TAG, message)
           appendLog("$GATEWAY_TAG $message")
         },
+        onHeartbeat = { heartbeat ->
+          updateState { it.copy(lastHeartbeat = heartbeat) }
+        },
         getNodeId = { stateRef.get().nodeId ?: "unknown" },
         getCapabilities = { capabilityManifest() },
       )
@@ -107,7 +111,14 @@ class OpenClawForegroundService : Service() {
   }
 
   private fun updateState(transform: (UiState) -> UiState) {
-    stateRef.set(transform(stateRef.get()))
+    val next = transform(stateRef.get())
+    stateRef.set(next)
+    pushStateToDashboard(next)
+  }
+
+  private fun pushStateToDashboard(state: UiState) {
+    val bridge = bridgeRef.get()?.get() ?: return
+    bridge.pushStateToJs(state.toJson().toString())
   }
 
   private fun appendLog(message: String) {
@@ -130,12 +141,7 @@ class OpenClawForegroundService : Service() {
   }
 
   private fun capabilityManifest(): JSONArray {
-    return JSONArray()
-      .put(
-        org.json.JSONObject()
-          .put("name", "camsnap")
-          .put("version", 1),
-      )
+    return CapabilityRegistry.manifest()
   }
 
   private fun logBatteryOptimizationStatus() {
@@ -186,6 +192,7 @@ class OpenClawForegroundService : Service() {
     private val lastLogs = AtomicReference("")
     private val running = AtomicBoolean(false)
     private val logLock = Any()
+    private val bridgeRef = AtomicReference<WeakReference<OpenClawBridge>?>(null)
 
     fun intentStart(ctx: Context): Intent = Intent(ctx, OpenClawForegroundService::class.java)
 
@@ -207,5 +214,9 @@ class OpenClawForegroundService : Service() {
     }
 
     fun getLastLogs(): String = lastLogs.get()
+
+    fun attachBridge(bridge: OpenClawBridge?) {
+      bridgeRef.set(bridge?.let { WeakReference(it) })
+    }
   }
 }
