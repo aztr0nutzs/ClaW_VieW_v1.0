@@ -71,7 +71,7 @@
   function connectGateway() {
     const controllerUrl = readControllerUrl();
     if (!controllerUrl) {
-      showError('Missing controller URL. Enter a ws:// URL before connecting.');
+      showError(formatError('MISSING_CONTROLLER_URL'));
       return;
     }
     persistControllerUrl(controllerUrl);
