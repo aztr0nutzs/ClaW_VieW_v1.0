@@ -1297,9 +1297,26 @@ input, .mono{
     const m = el('badgeMemory');
     const g = el('badgeGateways');
 
-    a.querySelector('b').textContent = state.service.nodeId || 'unknown';
-    m.querySelector('b').textContent = state.service.registered ? 'yes' : 'no';
-    g.querySelector('b').textContent = formatTimestamp(state.service.lastHeartbeat);
+    if (a) {
+      const aBold = a.querySelector('b');
+      if (aBold) {
+        aBold.textContent = state.service.nodeId || 'unknown';
+      }
+    }
+
+    if (m) {
+      const mBold = m.querySelector('b');
+      if (mBold) {
+        mBold.textContent = state.service.registered ? 'yes' : 'no';
+      }
+    }
+
+    if (g) {
+      const gBold = g.querySelector('b');
+      if (gBold) {
+        gBold.textContent = formatTimestamp(state.service.lastHeartbeat);
+      }
+    }
   }
 
   function renderTop(){
