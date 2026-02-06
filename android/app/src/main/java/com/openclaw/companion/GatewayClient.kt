@@ -399,12 +399,13 @@ class GatewayClient(
     if (type != "capability_result") {
       return payload
     }
-    val safe = JSONObject(payload.toString())
-    val result = safe.optJSONObject("result")
+    val result = payload.optJSONObject("result")
     if (result != null && result.has("bytesB64")) {
-      result.put("bytesB64", "<redacted>")
+      val safe = JSONObject(payload.toString())
+      safe.getJSONObject("result").put("bytesB64", "<redacted>")
+      return safe
     }
-    return safe
+    return payload
   }
 
   /**
