@@ -179,8 +179,8 @@ class OpenClawForegroundService : Service() {
           message = "Unknown capability: $capability",
         )
         val msg = "CAPABILITY_UNKNOWN capability=$capability requestId=$requestId"
-        Log.w(CAMSNAP_TAG, msg)
-        appendLog("$CAMSNAP_TAG $msg")
+        Log.w("OpenClawProtocol", msg)
+        appendLog("OpenClawProtocol $msg")
         updateState { it.copy(lastCapabilityResult = result, lastError = result.code) }
         openClawGateway?.sendCapabilityResult(result)
       }
