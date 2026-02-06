@@ -14,13 +14,13 @@ data class CapabilityDefinition(
 )
 
 object CapabilityRegistry {
-  private val capabilities = listOf(
+  private val capabilities: Map<String, CapabilityDefinition> = listOf(
     CapabilityDefinition(
       name = "camsnap",
       version = 1,
       requiredPermissions = listOf(Manifest.permission.CAMERA),
     ),
-  )
+  ).associateBy { it.name }
 
   fun manifest(): JSONArray {
     val array = JSONArray()
