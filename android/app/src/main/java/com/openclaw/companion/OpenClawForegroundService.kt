@@ -143,8 +143,7 @@ class OpenClawForegroundService : LifecycleService() {
   }
 
   private fun updateState(transform: (UiState) -> UiState) {
-    val next = transform(stateRef.get())
-    stateRef.set(next)
+    val next = stateRef.updateAndGet { current -> transform(current) }
     stateSink.get()?.invoke(next.toJson().toString())
   }
 
