@@ -67,7 +67,7 @@ class OpenClawForegroundService : LifecycleService() {
     gatewayClient?.shutdown()
     gatewayClient = null
     cameraProvider?.unbindAll()
-    cameraExecutor.shutdown()
+    cameraExecutor.shutdownNow()
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
       stopForeground(STOP_FOREGROUND_REMOVE)
     } else {
