@@ -52,50 +52,58 @@ class CamsnapCapability(private val context: Context) : LifecycleOwner {
         callbackExecutor,
         object : ImageCapture.OnImageSavedCallback {
           override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-            val bytes = runCatching { tempFile.readBytes() }.getOrElse {
+            cameraExecutor.execute {
+              val bytes = runCatching { tempFile.readBytes() }.getOrElse {
+                tempFile.delete()
+                callbackExecutor.execute {
+                  callback(
+                    CapabilityResult(
+                      requestId = null,
+                      capability = "camsnap",
+                      ok = false,
+                      code = "CAPTURE_READ_FAILED",
+                      message = "Failed to read captured image",
+                    ),
+                  )
+                }
+                return@execute
+              }
               tempFile.delete()
-              callback(
-                CapabilityResult(
-                  requestId = null,
-                  capability = "camsnap",
-                  ok = false,
-                  code = "CAPTURE_READ_FAILED",
-                  message = "Failed to read captured image",
-                ),
-              )
-              return
+              if (bytes.size > maxBytes) {
+                callbackExecutor.execute {
+                  callback(
+                    CapabilityResult(
+                      requestId = null,
+                      capability = "camsnap",
+                      ok = false,
+                      code = "IMAGE_TOO_LARGE",
+                      message = "Captured image exceeds maxBytes",
+                      data = JSONObject().put("bytes", bytes.size).put("maxBytes", maxBytes),
+                    ),
+                  )
+                }
+                return@execute
+              }
+              val imageId = UUID.randomUUID().toString()
+              val encoded = Base64.getEncoder().encodeToString(bytes)
+              val data = JSONObject()
+                .put("imageId", imageId)
+                .put("bytes", bytes.size)
+                .put("mime", "image/jpeg")
+                .put("jpegBase64", encoded)
+              callbackExecutor.execute {
+                callback(
+                  CapabilityResult(
+                    requestId = null,
+                    capability = "camsnap",
+                    ok = true,
+                    code = "OK",
+                    message = "Captured image",
+                    data = data,
+                  ),
+                )
+              }
             }
-            tempFile.delete()
-            if (bytes.size > maxBytes) {
-              callback(
-                CapabilityResult(
-                  requestId = null,
-                  capability = "camsnap",
-                  ok = false,
-                  code = "IMAGE_TOO_LARGE",
-                  message = "Captured image exceeds maxBytes",
-                  data = JSONObject().put("bytes", bytes.size).put("maxBytes", maxBytes),
-                ),
-              )
-              return
-            }
-            val imageId = UUID.randomUUID().toString()
-            val encoded = Base64.getEncoder().encodeToString(bytes)
-            val data = JSONObject()
-              .put("imageId", imageId)
-              .put("bytes", bytes.size)
-              .put("mime", "image/jpeg")
-              .put("jpegBase64", encoded)
-            callback(
-              CapabilityResult(
-                requestId = null,
-                capability = "camsnap",
-                ok = true,
-                code = "OK",
-                message = "Captured image",
-                data = data,
-              ),
-            )
           }
 
           override fun onError(exception: ImageCaptureException) {
